@@ -85,13 +85,21 @@ async function hfFiles(repo) {
   return (await res.json()).filter((f) => f.type === 'file').map((f) => f.path);
 }
 
+const tierDir = (tierKey) => path.join(modelsDir(), TIERS[tierKey].repo.replace('/', '__'));
+
+// Finished files only: a download in progress is named .gguf.part and is
+// renamed to .gguf once it is complete.
+function localFiles(tierKey) {
+  let have = [];
+  try { have = fs.readdirSync(tierDir(tierKey)).filter((f) => f.endsWith('.gguf')); } catch {}
+  return { model: have.find((f) => !f.startsWith('mmproj')), mmproj: have.find((f) => f.startsWith('mmproj')) };
+}
+
 async function ensureModel(tierKey) {
   const tier = TIERS[tierKey];
-  const dir = path.join(modelsDir(), tier.repo.replace('/', '__'));
+  const dir = tierDir(tierKey);
   fs.mkdirSync(dir, { recursive: true });
-  const have = fs.readdirSync(dir).filter((f) => f.endsWith('.gguf'));
-  let model = have.find((f) => !f.startsWith('mmproj'));
-  let mmproj = have.find((f) => f.startsWith('mmproj'));
+  let { model, mmproj } = localFiles(tierKey);
   if (model && mmproj) return { model: path.join(dir, model), mmproj: path.join(dir, mmproj) };
 
   setStatus({ state: 'downloading', progress: 0, message: `Finding ${tier.name}…` });
@@ -262,7 +270,8 @@ async function streamLocal({ tierSetting, systemPrompt, messages, signal, onText
 
 function describe(tierSetting) {
   const key = resolveTier(tierSetting);
-  return { tier: key, auto: !TIERS[tierSetting], ramGB: Math.round(ramGB()), ...TIERS[key], status };
+  const files = localFiles(key);
+  return { tier: key, auto: !TIERS[tierSetting], ramGB: Math.round(ramGB()), ...TIERS[key], downloaded: Boolean(files.model && files.mmproj), status };
 }
 
 module.exports = { TIERS, autoTier, describe, start, stop, streamLocal, onStatus };

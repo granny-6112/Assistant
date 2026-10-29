@@ -1,3 +1,4 @@
+- Offline model button says "Load now" once the model is downloaded
 - Offline model no longer stays stuck on "Loading" after it is ready
 - Settings button is now a gear icon
 - Mic button: ask out loud; stops after 5 s of silence or on Enter

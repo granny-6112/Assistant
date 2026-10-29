@@ -1,6 +1,6 @@
 {
   "name": "assistant",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "A screen assistant that hides at the top of your screen: Gemini, Claude or an offline Gemma model",
   "main": "src/main.js",
   "scripts": {

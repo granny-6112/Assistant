@@ -840,10 +840,12 @@
     const busy = st.state === 'downloading' || st.state === 'loading';
     $('mp-progress').style.width = `${Math.round((st.progress || 0) * 100)}%`;
     $('mp-progress').parentElement.hidden = !busy;
-    $('mp-local-status').textContent = st.message || `Downloads about ${l.approxGB} GB the first time, then works offline.`;
+    $('mp-local-status').textContent = st.message || (l.downloaded
+      ? `${l.name} is downloaded. Works with no internet.`
+      : `Downloads about ${l.approxGB} GB the first time, then works offline.`);
     const btn = $('mp-local-prepare');
     btn.hidden = busy || st.state === 'ready';
-    btn.textContent = st.state === 'error' ? 'Try again' : 'Download & load now';
+    btn.textContent = st.state === 'error' ? 'Try again' : (l.downloaded ? 'Load now' : 'Download & load now');
   }
 
   async function selectModel(i) {
@@ -896,7 +898,10 @@
   });
 
   window.bar.onLocalStatus((status) => {
-    if (state.local) state.local.status = status;
+    if (state.local) {
+      state.local.status = status;
+      if (status.state === 'ready') state.local.downloaded = true;
+    }
     renderLocalStatus();
     if (status.state === 'downloading' || status.state === 'loading') showBanner(status.message, 'info');
     else if (banner.classList.contains('info') && /Download|Loading|Finding|Unpacking/.test(banner.textContent)) showBanner('');
