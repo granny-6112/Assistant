@@ -23,6 +23,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx electron-builder --win nsis --x64 --publish always
+      - run: npx electron-builder --win nsis --x64 --publish never
+      # Upload with gh rather than electron-builder's publisher: it creates the
+      # v<version> tag itself and, on a re-run, replaces the files in place.
+      - name: Publish release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=$(node -p "require('./package.json').version")
+          files="dist/Assistant-Setup-$v.exe dist/Assistant-Setup-$v.exe.blockmap dist/latest.yml"
+          if gh release view "v$v" >/dev/null 2>&1; then
+            gh release upload "v$v" $files --clobber
+            gh release edit "v$v" --draft=false --latest
+          else
+            gh release create "v$v" $files --target "$GITHUB_SHA" --title "Assistant $v" --generate-notes --latest
+          fi
