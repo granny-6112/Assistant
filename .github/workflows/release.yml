@@ -1,0 +1,26 @@
+# Builds the Windows installer and publishes it as a GitHub release, which is
+# where installed copies of Assistant look for updates. Runs when a version
+# tag (v0.2.0, v0.3.0, ...) is pushed; the tag must match package.json.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx electron-builder --win nsis --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
