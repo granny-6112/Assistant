@@ -28,7 +28,7 @@ let currentDisplay = null;
 let edgeSince = 0;
 let outsideSince = 0;
 let contentHeight = COLLAPSED_HEIGHT;
-let ui = { busy: false, typing: false, settingsOpen: false, pinned: false, recording: false };
+let ui = { busy: false, typing: false, settingsOpen: false, pinned: false, recording: false, listening: false };
 let agentRun = null; // { controller, confirmations: Map } while agent mode is driving the PC
 
 const conversation = new Conversation();
@@ -164,7 +164,7 @@ function toggleBar() {
 }
 
 function keepOpen() {
-  return Boolean(agentRun) || ui.pinned || ui.busy || ui.settingsOpen || (ui.typing && win.isFocused());
+  return Boolean(agentRun) || ui.pinned || ui.busy || ui.listening || ui.settingsOpen || (ui.typing && win.isFocused());
 }
 
 let tickTimer = null;
@@ -548,12 +548,13 @@ ipcMain.handle('set-api-key', async (_e, { provider, key }) => {
 
 ipcMain.on('ui-state', (_e, state) => {
   const wasRecording = ui.recording;
+  const wasCapturing = ui.recording || ui.listening;
   ui = { ...ui, ...state };
-  if (ui.recording !== wasRecording) {
+  if (Boolean(ui.recording || ui.listening) !== Boolean(wasCapturing)) {
     // Recording keeps working while the bar is hidden only without throttling.
-    win.webContents.setBackgroundThrottling(!ui.recording);
-    refreshTray();
+    win.webContents.setBackgroundThrottling(!(ui.recording || ui.listening));
   }
+  if (ui.recording !== wasRecording) refreshTray();
 });
 
 ipcMain.on('content-height', (_e, h) => {

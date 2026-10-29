@@ -6,7 +6,11 @@
   const SILENCE_MS = 5000;     // stop after this long without speech
   const NO_SPEECH_MS = 8000;   // give up if nothing is said at all
   const MAX_MS = 60000;
-  const SPEECH_RMS = 0.02;     // level that counts as speaking
+  // Laptop mics with Windows' noise suppression are quiet, so a fixed level
+  // misses speech. Speaking counts as clearly louder than the quietest moment
+  // heard so far (the room's background), with a low floor.
+  const MIN_SPEECH_RMS = 0.006;
+  const OVER_BACKGROUND = 3;
 
   let rec = null;
 
@@ -49,16 +53,18 @@
 
   // Resolves with { wav, spoke } when recording ends: silence, finish() or the
   // time limit. cancel() resolves with null.
-  async function start({ onTick } = {}) {
+  async function start({ onTick, onLevel } = {}) {
     if (rec) return null;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
     const ctx = new AudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
     const node = ctx.createScriptProcessor(4096, 1, 1);
     const chunks = [];
     const began = performance.now();
     let lastVoice = 0;
     let spoke = false;
+    let background = Infinity;
 
     return new Promise((resolve) => {
       const end = (keep) => {
@@ -77,7 +83,11 @@
         chunks.push(new Float32Array(data));
         let sum = 0;
         for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
-        if (Math.sqrt(sum / data.length) > SPEECH_RMS) { spoke = true; lastVoice = performance.now(); }
+        const rms = Math.sqrt(sum / data.length);
+        if (rms > 0) background = Math.min(background, rms);
+        if (rms > Math.max(MIN_SPEECH_RMS, background * OVER_BACKGROUND)) { spoke = true; lastVoice = performance.now(); }
+        // 0..1 on a log scale, so quiet speech still visibly moves the meter.
+        onLevel?.(Math.max(0, Math.min(1, (Math.log10(rms + 1e-6) + 3) / 2.5)));
       };
       src.connect(node);
       node.connect(ctx.destination);

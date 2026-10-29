@@ -1,7 +1,9 @@
+- Mic picks up quiet laptop microphones; click the mic again or press Enter to send
+- While recording the mic turns into a red record button that moves with your voice
 - Offline model button says "Load now" once the model is downloaded
 - Offline model no longer stays stuck on "Loading" after it is ready
 - Settings button is now a gear icon
-- Mic button: ask out loud; stops after 5 s of silence or on Enter
+- Mic button: ask out loud; stops after 5 s of silence
 - Model slider opens from the model box
 - Cursor highlight follows the mouse with no lag
 - Videos no longer hitch when the bar hides

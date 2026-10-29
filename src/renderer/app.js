@@ -15,6 +15,7 @@
     settings: {},
     busy: false,
     pinned: false,
+    listening: false,
     settingsOpen: false,
     agentMode: false,
     agentRunning: false,
@@ -119,6 +120,7 @@
       settingsOpen: state.settingsOpen,
       pinned: state.pinned,
       recording: window.Recorder.active(),
+      listening: state.listening,
     });
   }
 
@@ -1007,32 +1009,50 @@
       showBanner('Voice input uses your free Google Gemini key to turn speech into text. Add one in Settings → API keys.');
       return;
     }
-    showBanner('Listening… stops when you pause for 5 seconds, or press Enter.', 'info');
+    // Keep the bar open while listening and transcribing, so the question
+    // can't land in a hidden bar.
+    const setListening = (on) => { state.listening = on; reportUi(); };
+    setListening(true);
+    showBanner('Listening… click the mic or press Enter when you\'re done, or just pause for 5 seconds.', 'info');
     micBtn.classList.add('listening');
-    $('mic-time').textContent = '0:00';
     let result;
     try {
-      result = await window.Voice.start({ onTick: (s) => { $('mic-time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; } });
+      result = await window.Voice.start({
+        onLevel: (v) => micBtn.style.setProperty('--mic-level', v.toFixed(2)),
+      });
     } catch (err) {
       micBtn.classList.remove('listening');
+      setListening(false);
       showBanner(window.Voice.describeMicError(err));
       return;
     }
     micBtn.classList.remove('listening');
-    if (!result) { showBanner(''); return; }
-    if (!result.spoke) { showBanner("Didn't hear anything. Check your mic and try again.", 'info'); return; }
+    micBtn.style.setProperty('--mic-level', '0');
+    if (!result) { setListening(false); showBanner(''); return; }
+    if (!result.spoke) {
+      setListening(false);
+      showBanner("Didn't hear anything. The ring around the mic should move when you talk; if it doesn't, pick the right microphone in Windows sound settings.", 'info');
+      return;
+    }
     micBtn.classList.add('transcribing');
     showBanner('Turning your speech into text…', 'info');
-    const r = await window.bar.transcribe(result.wav);
+    let r;
+    try {
+      r = await window.bar.transcribe(result.wav);
+    } catch (err) {
+      r = { ok: false, error: `Couldn't turn your speech into text: ${err.message || err}` };
+    }
     micBtn.classList.remove('transcribing');
+    setListening(false);
     if (!r.ok) { showBanner(r.error); return; }
     if (!r.text) { showBanner("Couldn't make out any words. Try again a little closer to the mic.", 'info'); return; }
     showBanner('');
     input.value = r.text;
     submit();
   }
+  // Clicking the mic again sends what was said; Esc throws it away.
   micBtn.addEventListener('click', () => {
-    if (window.Voice.active()) window.Voice.cancel(); else startVoice();
+    if (window.Voice.active()) window.Voice.finish(); else startVoice();
   });
 
   function findModelIndex(id) { return state.models.findIndex((m) => m.id === id); }
