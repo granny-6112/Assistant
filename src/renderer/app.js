@@ -141,8 +141,22 @@
     $('recording-chip').hidden = state.settingsOpen || !state.lastRecording;
   }
 
-  function showBanner(text, kind = 'error') {
+  // actions: [{ label, primary, onClick }] shown as buttons under the text.
+  function showBanner(text, kind = 'error', actions = []) {
     banner.textContent = text;
+    if (actions.length) {
+      const row = document.createElement('div');
+      row.className = 'banner-actions';
+      for (const a of actions) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `pill-btn${a.primary ? ' primary' : ' ghost'}`;
+        b.textContent = a.label;
+        b.addEventListener('click', a.onClick);
+        row.append(b);
+      }
+      banner.append(row);
+    }
     banner.className = `banner ${kind === 'info' ? 'info' : ''}`;
     banner.hidden = !text;
     syncPanel();
@@ -689,6 +703,38 @@
     renderPicker();
   }
 
+  // Microphone list in Settings → General. Names only show once the mic has
+  // been allowed; before that Windows reports them as unnamed.
+  async function fillMics() {
+    const select = $('mic-device');
+    let mics = [];
+    try { mics = await window.Voice.listMics(); } catch {}
+    const want = state.settings.micDeviceId || '';
+    select.replaceChildren(new Option('Windows default', ''), ...mics.map((m) => new Option(m.label, m.id)));
+    if (want && !mics.some((m) => m.id === want)) select.append(new Option('Saved microphone (not plugged in)', want));
+    select.value = want;
+  }
+  navigator.mediaDevices?.addEventListener('devicechange', () => { if (state.settingsOpen) fillMics(); });
+
+  let testingMic = false;
+  $('mic-test').addEventListener('click', async () => {
+    if (testingMic) return;
+    testingMic = true;
+    const btn = $('mic-test');
+    const bar = $('mic-test-level');
+    btn.textContent = 'Talk now…';
+    try {
+      await window.Voice.test($('mic-device').value, (v) => { bar.style.transform = `scaleX(${v.toFixed(2)})`; });
+      state.settings = await window.bar.saveSettings({ micAsked: true });
+      fillMics(); // names appear once access is allowed
+    } catch (err) {
+      showBanner(window.Voice.describeMicError(err));
+    } finally {
+      btn.textContent = 'Test';
+      testingMic = false;
+    }
+  });
+
   function renderKeysSummary(k) {
     const mark = (x) => (x?.has ? '✓' : '–');
     $('keys-summary').textContent = `Google ${mark(k.google)} · Anthropic ${mark(k.anthropic)}`;
@@ -929,7 +975,7 @@
       for (const d of settingsForm.querySelectorAll('details.section')) d.open = d.dataset.section === section;
     }
     state.settingsOpen = true;
-    loadSettings();
+    loadSettings().then(fillMics);
     syncPanel();
     reportUi();
   }
@@ -988,6 +1034,7 @@
     const status = $('setup-mic-status');
     try {
       await window.Voice.requestAccess();
+      state.settings = await window.bar.saveSettings({ micAsked: true });
       status.className = 'ok';
       status.textContent = 'Microphone allowed.';
       $('setup-mic').hidden = true;
@@ -1011,6 +1058,25 @@
     }
     // Keep the bar open while listening and transcribing, so the question
     // can't land in a hidden bar.
+    // Ask once, in Assistant itself, before the microphone is first used.
+    if (!state.settings.micAsked) {
+      if (state.micPrompting) return;
+      state.micPrompting = true;
+      const allowed = await new Promise((resolve) => showBanner('Assistant would like to use your microphone so you can ask out loud. Audio is only sent to Gemini to turn it into text and is never saved.', 'info', [
+        { label: 'Allow microphone', primary: true, onClick: () => resolve(true) },
+        { label: 'Not now', onClick: () => resolve(false) },
+      ]));
+      state.micPrompting = false;
+      showBanner('');
+      if (!allowed) return;
+      state.settings = await window.bar.saveSettings({ micAsked: true });
+    }
+    if (await window.bar.micStatus() === 'denied') {
+      showBanner('Windows is blocking the microphone for Assistant. Turn on "Microphone access" and "Let desktop apps access your microphone", then try again.', 'error', [
+        { label: 'Open Windows microphone settings', primary: true, onClick: () => window.bar.openMicSettings() },
+      ]);
+      return;
+    }
     const setListening = (on) => { state.listening = on; reportUi(); };
     setListening(true);
     showBanner('Listening… click the mic or press Enter when you\'re done, or just pause for 5 seconds.', 'info');
@@ -1018,12 +1084,14 @@
     let result;
     try {
       result = await window.Voice.start({
+        deviceId: state.settings.micDeviceId,
         onLevel: (v) => micBtn.style.setProperty('--mic-level', v.toFixed(2)),
       });
     } catch (err) {
       micBtn.classList.remove('listening');
       setListening(false);
-      showBanner(window.Voice.describeMicError(err));
+      const blocked = err?.name === 'NotAllowedError' || err?.name === 'SecurityError' || err?.name === 'NotReadableError';
+      showBanner(window.Voice.describeMicError(err), 'error', blocked ? [{ label: 'Open Windows microphone settings', onClick: () => window.bar.openMicSettings() }] : []);
       return;
     }
     micBtn.classList.remove('listening');

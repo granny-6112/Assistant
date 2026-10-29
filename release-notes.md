@@ -1,3 +1,5 @@
+- Asks before using the microphone, with a button to Windows settings if it is blocked
+- Choose and test your microphone in Settings → General
 - Mic picks up quiet laptop microphones; click the mic again or press Enter to send
 - While recording the mic turns into a red record button that moves with your voice
 - Offline model button says "Load now" once the model is downloaded

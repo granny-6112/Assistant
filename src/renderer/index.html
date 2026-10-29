@@ -277,9 +277,15 @@
           </details>
 
           <details class="section" data-section="general">
-            <summary><span>General</span><small class="hint">Showing the bar, recording, history</small></summary>
+            <summary><span>General</span><small class="hint">Microphone, showing the bar, recording, history</small></summary>
             <div class="section-body">
               <div class="grid">
+            <label class="field"><span>Microphone</span>
+              <select id="mic-device" data-setting="micDeviceId"><option value="">Windows default</option></select>
+            </label>
+            <div class="field"><span>Test the microphone</span>
+              <div class="mic-test"><button type="button" id="mic-test" class="pill-btn ghost">Test</button><div class="meter"><i id="mic-test-level"></i></div></div>
+            </div>
             <label class="field"><span>Reveal when the mouse touches</span>
               <select data-setting="revealZone">
                 <option value="full">Anywhere on the top edge</option>

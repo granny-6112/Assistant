@@ -51,11 +51,58 @@
     return `The microphone couldn't start: ${err?.message || err}`;
   }
 
+  // Opens the chosen microphone, falling back to the Windows default if that
+  // one has been unplugged.
+  async function openMic(deviceId) {
+    const audio = { echoCancellation: true, noiseSuppression: true, channelCount: 1 };
+    if (deviceId) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: deviceId } } });
+      } catch (err) {
+        if (err?.name !== 'OverconstrainedError' && err?.name !== 'NotFoundError') throw err;
+      }
+    }
+    return navigator.mediaDevices.getUserMedia({ audio });
+  }
+
+  async function listMics() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications')
+      .map((d, i) => ({ id: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
+  }
+
+  // Shows the live level of a microphone for a few seconds (Settings test).
+  async function test(deviceId, onLevel, ms = 6000) {
+    const stream = await openMic(deviceId);
+    const ctx = new AudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const node = ctx.createScriptProcessor(2048, 1, 1);
+    node.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      onLevel(toLevel(Math.sqrt(sum / data.length)));
+    };
+    src.connect(node);
+    node.connect(ctx.destination);
+    await new Promise((r) => setTimeout(r, ms));
+    node.disconnect();
+    src.disconnect();
+    stream.getTracks().forEach((t) => t.stop());
+    ctx.close();
+    onLevel(0);
+  }
+
+  // 0..1 on a log scale, so quiet speech still visibly moves a meter.
+  const toLevel = (rms) => Math.max(0, Math.min(1, (Math.log10(rms + 1e-6) + 3) / 2.5));
+
   // Resolves with { wav, spoke } when recording ends: silence, finish() or the
   // time limit. cancel() resolves with null.
-  async function start({ onTick, onLevel } = {}) {
+  async function start({ onTick, onLevel, deviceId } = {}) {
     if (rec) return null;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+    const stream = await openMic(deviceId);
     const ctx = new AudioContext();
     if (ctx.state === 'suspended') await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
@@ -86,8 +133,7 @@
         const rms = Math.sqrt(sum / data.length);
         if (rms > 0) background = Math.min(background, rms);
         if (rms > Math.max(MIN_SPEECH_RMS, background * OVER_BACKGROUND)) { spoke = true; lastVoice = performance.now(); }
-        // 0..1 on a log scale, so quiet speech still visibly moves the meter.
-        onLevel?.(Math.max(0, Math.min(1, (Math.log10(rms + 1e-6) + 3) / 2.5)));
+        onLevel?.(toLevel(rms));
       };
       src.connect(node);
       node.connect(ctx.destination);
@@ -117,6 +163,8 @@
     cancel: () => rec?.cancel(),
     active: () => Boolean(rec),
     requestAccess,
+    listMics,
+    test,
     describeMicError,
   };
 })();

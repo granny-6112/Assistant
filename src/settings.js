@@ -21,6 +21,8 @@ const DEFAULTS = {
   accentColor: '#d97757',   // drives every coloured element (buttons, slider, dots, links)
   launchAtLogin: false,
   copilotKey: true,         // the laptop Copilot key toggles the bar
+  micDeviceId: '',          // microphone for voice input; '' is the Windows default
+  micAsked: false,          // the user has been asked once whether Assistant may use the mic
   setupDone: false,         // the first-run key walkthrough was finished or skipped
   saveHistory: true,        // keep conversations (text only) for the Claude extension
   agentEnabled: false,      // agent mode may move the mouse and type (opt-in)
