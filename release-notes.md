@@ -1,4 +1,5 @@
 - Offline model no longer stays stuck on "Loading" after it is ready
+- Settings button is now a gear icon
 - Mic button: ask out loud; stops after 5 s of silence or on Enter
 - Model slider opens from the model box
 - Cursor highlight follows the mouse with no lag
