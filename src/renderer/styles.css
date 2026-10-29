@@ -612,3 +612,19 @@ kbd {
 .section-body > .hint { margin: 0; }
 .settings input[type="range"]#glass-transparency { width: 100%; accent-color: var(--accent); }
 #transparency-value { font-weight: 600; color: var(--text); }
+
+/* Font picker */
+.settings input[type="range"]#font-slider { width: 100%; accent-color: var(--accent); }
+#font-name { font-weight: 600; color: var(--text); font-size: 13px; }
+.font-ticks { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: -2px; }
+.font-ticks button {
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  font-size: 14px;
+  color: var(--muted);
+  border-radius: 8px;
+  transition: color .15s, background .15s;
+}
+.font-ticks button:hover { color: var(--text); background: var(--faint); }
+.font-ticks button.on { color: var(--accent-hi); font-weight: 600; }

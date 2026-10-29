@@ -99,6 +99,57 @@
     }
   }
 
+  // ---------- font ----------
+
+  // Segoe is Windows' own font; the next five ship with the app; Satoshi's
+  // licence doesn't allow bundling, so it loads from Fontshare the first time.
+  const FONTS = [
+    { id: 'segoe', name: 'Segoe UI Variable', stack: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' },
+    { id: 'inter', name: 'Inter', stack: '"Inter Variable", "Segoe UI", sans-serif' },
+    { id: 'geist', name: 'Geist', stack: '"Geist Variable", "Segoe UI", sans-serif' },
+    { id: 'manrope', name: 'Manrope', stack: '"Manrope Variable", "Segoe UI", sans-serif' },
+    { id: 'dm-sans', name: 'DM Sans', stack: '"DM Sans Variable", "Segoe UI", sans-serif' },
+    { id: 'plex', name: 'IBM Plex Sans', stack: '"IBM Plex Sans Variable", "Segoe UI", sans-serif' },
+    { id: 'satoshi', name: 'Satoshi', stack: '"Satoshi", "Segoe UI", sans-serif', remote: 'https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700&display=swap' },
+  ];
+
+  function ensureRemoteFont(font) {
+    if (!font.remote || document.querySelector(`link[data-font="${font.id}"]`)) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = font.remote;
+    link.dataset.font = font.id;
+    document.head.appendChild(link);
+  }
+
+  function applyFont(id) {
+    const i = Math.max(0, FONTS.findIndex((f) => f.id === id));
+    const font = FONTS[i];
+    ensureRemoteFont(font);
+    document.documentElement.style.setProperty('--font', font.stack);
+    $('font-slider').value = String(i);
+    $('font-name').textContent = font.name;
+    $('font-name').style.fontFamily = font.stack;
+    for (const [j, t] of [...$('font-ticks').children].entries()) t.classList.toggle('on', j === i);
+  }
+
+  // Each tick is "Aa" in its own typeface; clicking one picks it too.
+  for (const [i, f] of FONTS.entries()) {
+    const t = document.createElement('button');
+    t.type = 'button';
+    t.textContent = 'Aa';
+    t.title = f.name;
+    t.style.fontFamily = f.stack;
+    t.addEventListener('click', () => { $('font-slider').value = String(i); $('font-slider').dispatchEvent(new Event('change')); });
+    $('font-ticks').appendChild(t);
+  }
+  $('font-slider').addEventListener('input', (e) => applyFont(FONTS[Number(e.target.value)].id));
+  $('font-slider').addEventListener('change', async (e) => {
+    const font = FONTS[Number(e.target.value)];
+    applyFont(font.id);
+    state.settings = await window.bar.saveSettings({ fontFamily: font.id });
+  });
+
   // Scales the glass tint: 0 → about 1.8× as opaque as the default, 100 → nearly clear.
   function applyTransparency(t) {
     const v = Number.isFinite(Number(t)) ? Number(t) : 50;
@@ -542,6 +593,7 @@
     applyTint();
     applyAccent(s.accentColor);
     applyTransparency(s.glassTransparency);
+    applyFont(s.fontFamily);
     renderKeysSummary(s.keys);
     renderUpdate(s.update, s.version);
     for (const provider of ['google', 'anthropic']) {
@@ -748,6 +800,7 @@
   });
 
   function openSettings(section) {
+    ensureRemoteFont(FONTS.find((f) => f.remote)); // so its preview renders
     if (section) {
       for (const d of settingsForm.querySelectorAll('details.section')) d.open = d.dataset.section === section;
     }

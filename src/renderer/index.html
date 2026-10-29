@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://api.fontshare.com; font-src 'self' https://cdn.fontshare.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:">
   <title>Assistant</title>
+  <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -170,7 +171,7 @@
           </details>
 
           <details class="section" data-section="look">
-            <summary><span>Personalization</span><small class="hint">Colour and transparency</small></summary>
+            <summary><span>Personalization</span><small class="hint">Colour, font and transparency</small></summary>
             <div class="section-body">
           <div class="field">
             <span>Accent colour</span>
@@ -187,6 +188,11 @@
               <label class="swatch swatch-custom" title="Any colour"><input type="color" id="accent-custom"></label>
             </div>
           </div>
+              <div class="field">
+                <span>Font <b id="font-name"></b></span>
+                <input type="range" id="font-slider" min="0" max="6" step="1" aria-label="Font">
+                <div id="font-ticks" class="font-ticks"></div>
+              </div>
               <label class="field">
                 <span>Glass transparency <b id="transparency-value"></b></span>
                 <input type="range" id="glass-transparency" data-setting="glassTransparency" data-number min="0" max="100" step="5">
