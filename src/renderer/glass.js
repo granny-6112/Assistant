@@ -188,12 +188,21 @@
     video.srcObject = null;
   }
 
-  function stop() {
+  // Ends screen capture but leaves the last frame on the glass, so the bar
+  // looks the same while it slides away. Called as soon as hiding starts:
+  // tearing capture down while the bar is still on screen means Windows
+  // isn't switching a playing video back to its fast path at the same moment
+  // it is releasing the capture, which is what made videos hitch.
+  function freeze() {
     if (frameCb) video.cancelVideoFrameCallback(frameCb);
     frameCb = 0;
     cancelAnimationFrame(redrawQueued);
     redrawQueued = 0;
     stopStream();
+  }
+
+  function stop() {
+    freeze();
     setLive(false);
   }
 
@@ -210,5 +219,5 @@
     });
   }
 
-  window.Glass = { start, stop };
+  window.Glass = { start, stop, freeze };
 })();

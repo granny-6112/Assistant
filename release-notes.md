@@ -1,9 +1,13 @@
 - Mic button: ask out loud; stops after 5 s of silence or on Enter
 - Model slider opens from the model box
 - Cursor highlight follows the mouse with no lag
+- Videos no longer hitch when the bar hides
 - Clearer error messages that say what to do
 - Setup guide for a free Gemini key and the microphone
 - Code blocks with Copy, tables and maths in answers
 - Shows today's free Gemini usage and warns near the limit
 - Updates section with what's new and Restart now
+- Font choice in Personalization
+- Claude can read your Assistant chats (install Assistant-for-Claude.mcpb)
+- Updates no longer need a GitHub token
 - Faster: starts about 25% quicker and uses about 20 MB less memory in the background

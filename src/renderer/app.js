@@ -1048,6 +1048,7 @@
 
   window.bar.onConceal(() => {
     root.classList.add('concealed');
+    window.Glass.freeze();
     concealTimer = setTimeout(() => window.Glass.stop(), 260);
   });
 
