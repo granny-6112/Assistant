@@ -20,6 +20,7 @@ const DEFAULTS = {
   accentColor: '#d97757',   // drives every coloured element (buttons, slider, dots, links)
   launchAtLogin: false,
   copilotKey: true,         // the laptop Copilot key toggles the bar
+  saveHistory: true,        // keep conversations (text only) for the Claude extension
   agentEnabled: false,      // agent mode may move the mouse and type (opt-in)
 };
 
@@ -27,7 +28,7 @@ const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 const keyFile = (provider) => path.join(app.getPath('userData'), `${provider}-key.bin`);
 // Only used if the OS offers no secure storage (never the case on Windows).
 const plainKeyFile = (provider) => path.join(app.getPath('userData'), `${provider}-key.txt`);
-const ENV_VARS = { google: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], anthropic: ['ANTHROPIC_API_KEY'], github: ['ASSISTANT_GH_TOKEN'] };
+const ENV_VARS = { google: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], anthropic: ['ANTHROPIC_API_KEY'] };
 
 let cache = null;
 

@@ -133,14 +133,6 @@
             </div>
             <small id="key-status-anthropic"></small>
           </label>
-          <label class="field">
-            <span>GitHub token for updates (read-only) · <a href="https://github.com/settings/personal-access-tokens/new" class="ext">make one</a></span>
-            <div class="key-row">
-              <input id="key-github" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
-              <button type="button" class="pill-btn save-key" data-provider="github">Save</button>
-            </div>
-            <small id="key-status-github"></small>
-          </label>
             </div>
           </details>
 
@@ -240,6 +232,7 @@
             <label class="switch"><input type="checkbox" data-setting="recordAudio"><span></span>Record system audio</label>
             <label class="switch"><input type="checkbox" data-setting="copilotKey"><span></span>Copilot key opens Assistant (applies after restart)</label>
             <label class="switch"><input type="checkbox" data-setting="launchAtLogin"><span></span>Start with Windows</label>
+                <label class="switch"><input type="checkbox" data-setting="saveHistory"><span></span>Save conversations on this PC so Claude can read them (screenshots are never saved)</label>
               </div>
               <div class="field">
                 <span>Updates</span>
@@ -254,6 +247,7 @@
 
           <div class="settings-actions">
             <button type="button" id="recordings-folder" class="pill-btn ghost">Recordings folder</button>
+            <button type="button" id="clear-history" class="pill-btn ghost">Clear saved conversations</button>
             <button type="button" id="quit" class="pill-btn ghost danger">Quit</button>
             <button type="button" id="close-settings" class="pill-btn primary">Done</button>
           </div>

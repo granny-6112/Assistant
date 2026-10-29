@@ -1,6 +1,6 @@
 {
   "name": "assistant",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A screen assistant that hides at the top of your screen: Gemini, Claude or an offline Gemma model",
   "main": "src/main.js",
   "scripts": {
@@ -77,7 +77,6 @@
         "provider": "github",
         "owner": "granny-6112",
         "repo": "Assistant",
-        "private": true,
         "releaseType": "release"
       }
     ],

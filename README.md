@@ -8,13 +8,11 @@ Unzip **Assistant-Setup.zip** and run **Assistant-Setup.exe**. It installs for y
 
 ## Updates
 
-New versions are published as releases on the private repo `granny-6112/Assistant`, and the app updates itself from there. Because the repo is private, the app needs a read-only token once:
+New versions are published as releases on [github.com/granny-6112/Assistant](https://github.com/granny-6112/Assistant/releases), and Assistant updates itself from there: it checks 30 seconds after starting and every 6 hours, downloads in the background, and installs on the next restart (or press **Restart now** in Settings → General, or **Restart to update** in the tray menu).
 
-1. Open [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new) (a fine-grained token).
-2. Repository access: **Only select repositories → Assistant**. Permissions: **Contents → Read-only**. Nothing else.
-3. Paste it into **Settings → Updates** in Assistant and press Save.
+## Claude knows what you asked Assistant
 
-Assistant then checks 30 seconds after it starts and every 6 hours, downloads a new version in the background, and installs it the next time it restarts (or press **Restart now** in Settings, or **Restart to update** in the tray menu). The token is stored encrypted with your Windows account.
+Assistant saves each conversation as text on this PC (`%APPDATA%\Assistant\history`; screenshots are never saved; turn it off or clear it in Settings → General). Install **Assistant-for-Claude.mcpb** from the latest release by double-clicking it (or Claude desktop → Settings → Extensions → Install extension). Claude then has read-only tools to list, search and open those conversations, using your normal Claude plan with no API key. Try "what did I ask Assistant about the build error?".
 
 ## Build and release (from source)
 

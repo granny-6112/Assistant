@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('bar', {
   ask: (req) => ipcRenderer.invoke('ask', req),
   cancel: () => ipcRenderer.invoke('cancel'),
   newChat: () => ipcRenderer.invoke('new-chat'),
+  clearHistory: () => ipcRenderer.invoke('clear-history'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (patch) => ipcRenderer.invoke('save-settings', patch),
   setApiKey: (provider, key) => ipcRenderer.invoke('set-api-key', { provider, key }),

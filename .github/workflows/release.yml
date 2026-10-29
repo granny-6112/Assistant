@@ -24,6 +24,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx electron-builder --win nsis --x64 --publish never
+      # The Claude desktop extension that reads Assistant's saved conversations.
+      - name: Pack Claude extension
+        shell: bash
+        run: |
+          cd claude-extension
+          npm ci --omit=dev --no-audit --no-fund
+          npx -y @anthropic-ai/mcpb@2.1.2 pack . ../dist/Assistant-for-Claude.mcpb
       # Upload with gh rather than electron-builder's publisher: it creates the
       # v<version> tag itself and, on a re-run, replaces the files in place.
       - name: Publish release
@@ -32,7 +39,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           v=$(node -p "require('./package.json').version")
-          files="dist/Assistant-Setup-$v.exe dist/Assistant-Setup-$v.exe.blockmap dist/latest.yml"
+          files="dist/Assistant-Setup-$v.exe dist/Assistant-Setup-$v.exe.blockmap dist/latest.yml dist/Assistant-for-Claude.mcpb"
           if gh release view "v$v" >/dev/null 2>&1; then
             gh release upload "v$v" $files --clobber
             gh release edit "v$v" --draft=false --latest

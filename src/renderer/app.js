@@ -455,6 +455,12 @@
     window.bar.saveSettings({ includeScreen: state.includeScreen });
   });
 
+  $('clear-history').addEventListener('click', async (e) => {
+    await window.bar.clearHistory();
+    e.target.textContent = 'Cleared';
+    setTimeout(() => { e.target.textContent = 'Clear saved conversations'; }, 1500);
+  });
+
   $('new-chat').addEventListener('click', async () => {
     if (state.busy) await window.bar.cancel();
     await window.bar.newChat();
@@ -538,7 +544,7 @@
     applyTransparency(s.glassTransparency);
     renderKeysSummary(s.keys);
     renderUpdate(s.update, s.version);
-    for (const provider of ['google', 'anthropic', 'github']) {
+    for (const provider of ['google', 'anthropic']) {
       const k = s.keys[provider];
       setKeyStatus(provider, k.has ? (k.fromEnv ? 'Using the key from your environment variables.' : 'Key saved (encrypted with your Windows account).') : 'No key yet.', k.has ? 'ok' : '');
     }
@@ -547,7 +553,7 @@
 
   function renderKeysSummary(k) {
     const mark = (x) => (x?.has ? '✓' : '–');
-    $('keys-summary').textContent = `Google ${mark(k.google)} · Anthropic ${mark(k.anthropic)} · GitHub ${mark(k.github)}`;
+    $('keys-summary').textContent = `Google ${mark(k.google)} · Anthropic ${mark(k.anthropic)}`;
   }
 
   function setKeyStatus(provider, text, kind) {
@@ -591,7 +597,7 @@
       else if (!r.hasKey) setKeyStatus(provider, 'Key removed.', '');
       else if (r.check && r.check.valid === false) setKeyStatus(provider, r.check.message, 'bad');
       else if (r.check && r.check.valid === null) setKeyStatus(provider, r.check.message, '');
-      else setKeyStatus(provider, provider === 'github' ? 'Token saved and working. Checking for updates…' : 'Key saved and working (encrypted with your Windows account).', 'ok');
+      else setKeyStatus(provider, 'Key saved and working (encrypted with your Windows account).', 'ok');
       if (r.ok && r.hasKey && /key/i.test(banner.textContent)) showBanner('');
       state.settings = await window.bar.getSettings();
       renderKeysSummary(state.settings.keys);
@@ -607,7 +613,6 @@
     if (version) state.version = version;
     const v = state.version ? `You're on ${state.version}. ` : '';
     const text = {
-      'no-token': `${v}Add a token to get updates automatically.`,
       checking: `${v}Checking for updates…`,
       none: `${v}This is the latest version.`,
       downloading: `Downloading ${st.version}… ${Math.round((st.progress || 0) * 100)}%`,
@@ -615,7 +620,7 @@
       error: `${v}${st.message || 'Update check failed.'}`,
     }[st?.state] || v;
     $('update-status').textContent = text;
-    updateAction.hidden = !st || st.state === 'no-token' || st.state === 'checking' || st.state === 'downloading';
+    updateAction.hidden = !st || st.state === 'checking' || st.state === 'downloading';
     updateAction.textContent = st?.state === 'ready' ? 'Restart now' : 'Check now';
     if (st?.state === 'ready' && !banner.textContent) showBanner(`Assistant ${st.version} is ready. It installs next time Assistant restarts.`, 'info');
   }

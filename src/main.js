@@ -9,6 +9,7 @@ const { MODELS, PROVIDERS, findModel, Conversation, describeError, isAbort, veri
 const local = require('./local');
 const updater = require('./updater');
 const agent = require('./agent');
+const history = require('./history');
 const input = require('./input');
 
 const WIN_WIDTH = 780;        // bar is 740 wide plus room for its shadow
@@ -32,6 +33,7 @@ let ui = { busy: false, typing: false, settingsOpen: false, pinned: false, recor
 let agentRun = null; // { controller, confirmations: Map } while agent mode is driving the PC
 
 const conversation = new Conversation();
+let historyId = history.newId(); // file the current conversation is saved to
 const recording = { file: null, stream: null, path: null, startedAt: 0, frames: [] };
 let lastRecording = null; // { path, durationSec, frames: [{t, data}] }
 
@@ -325,6 +327,7 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
       onFallback: () => send('ai-fallback'),
       onBusy: (text) => send('ai-status', text),
     });
+    if (!result.refused) saveTurn({ question: text, answer: result.text || '', model: result.busyFallback || model.name, attachments });
     return { ok: true, refused: result.refused, truncated: result.truncated, servedBy: result.servedBy, busyFallback: result.busyFallback };
   } catch (err) {
     if (isAbort(err)) return { ok: false, cancelled: true };
@@ -436,6 +439,7 @@ ipcMain.handle('agent-run', async (_e, { task }) => {
       onStep: ({ step, text }) => send('agent-state', { running: true, step, text }),
       confirm: agentConfirm,
     });
+    saveTurn({ question: task, answer: result.text, model: model.name, mode: 'agent', attachments: [`${result.steps} steps`] });
     return { ok: true, text: result.text, steps: result.steps, model: model.name };
   } catch (err) {
     if (isAbort(err) || controller.signal.aborted) return { ok: false, cancelled: true };
@@ -449,7 +453,24 @@ ipcMain.handle('agent-run', async (_e, { task }) => {
     refreshTray();
   }
 });
-ipcMain.handle('new-chat', () => conversation.reset());
+ipcMain.handle('new-chat', () => {
+  conversation.reset();
+  historyId = history.newId();
+});
+
+ipcMain.handle('clear-history', () => {
+  history.clearAll();
+  historyId = history.newId();
+});
+
+function saveTurn(turn) {
+  if (!settings.load().saveHistory) return;
+  try {
+    history.append(historyId, turn);
+  } catch (err) {
+    console.warn('Could not save the conversation:', err.message);
+  }
+}
 
 // ---------- IPC: models & offline model ----------
 
@@ -477,7 +498,6 @@ ipcMain.handle('get-settings', () => ({
   keys: {
     google: { has: Boolean(settings.getApiKey('google')), fromEnv: Boolean(settings.envKey('google')) },
     anthropic: { has: Boolean(settings.getApiKey('anthropic')), fromEnv: Boolean(settings.envKey('anthropic')) },
-    github: { has: Boolean(settings.getApiKey('github')), fromEnv: Boolean(settings.envKey('github')) },
   },
   version: app.getVersion(),
   update: updater.getStatus(),
@@ -501,8 +521,7 @@ ipcMain.handle('set-api-key', async (_e, { provider, key }) => {
     settings.setApiKey(provider, cleaned);
     const hasKey = Boolean(settings.getApiKey(provider));
     const value = cleaned || settings.getApiKey(provider);
-    const check = !hasKey ? null : provider === 'github' ? await updater.verifyToken(value) : await verifyKey(provider, value);
-    if (provider === 'github' && check?.valid !== false) updater.check();
+    const check = hasKey ? await verifyKey(provider, value) : null;
     return { ok: true, hasKey, check };
   } catch (err) {
     return { ok: false, error: err.message };

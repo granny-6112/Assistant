@@ -1,0 +1,41 @@
+{
+  "manifest_version": "0.2",
+  "name": "assistant-for-claude",
+  "display_name": "Assistant for Claude",
+  "version": "1.0.0",
+  "description": "Lets Claude read and search what you talked about in the Assistant bar. Uses your Claude plan, no API key.",
+  "long_description": "Assistant saves each conversation from the bar as a small text file on this PC (never screenshots). This extension gives the Claude desktop app read-only tools to list, search and open those conversations, so you can say things like \"carry on from what I asked Assistant earlier\" or \"what did Assistant say about that error?\". Nothing is uploaded until Claude reads a conversation for the chat you're in.",
+  "author": { "name": "Denis" },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "ASSISTANT_HISTORY_DIR": "${user_config.history_folder}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "list_assistant_conversations", "description": "List recent conversations from the Assistant bar" },
+    { "name": "search_assistant_conversations", "description": "Search Assistant conversations for words or phrases" },
+    { "name": "read_assistant_conversation", "description": "Read one Assistant conversation in full (or the latest)" }
+  ],
+  "user_config": {
+    "history_folder": {
+      "type": "directory",
+      "title": "Assistant history folder",
+      "description": "Where Assistant saves conversations. Leave as is unless you moved it.",
+      "default": "${HOME}/AppData/Roaming/Assistant/history",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["win32"],
+    "runtimes": { "node": ">=18.0.0" }
+  },
+  "keywords": ["assistant", "history", "memory"],
+  "license": "MIT"
+}
