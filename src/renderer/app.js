@@ -426,6 +426,7 @@
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (state.agentConfirmId) answerConfirm(false);
+    else if (state.pickerOpen) setPickerOpen(false);
     else if (state.agentRunning) window.bar.agentStop();
     else if (state.busy) window.bar.cancel();
     else if (state.settingsOpen) closeSettings();
@@ -677,12 +678,26 @@
   }
 
   slider.addEventListener('input', () => selectModel(Number(slider.value)));
+  // Close once a model is picked: 'change' fires when the slider is let go, not
+  // while it's being dragged. The offline model stays open for its Download button.
+  slider.addEventListener('change', () => {
+    if (state.models[Number(slider.value)]?.provider !== 'local') setPickerOpen(false);
+  });
 
-  $('model-chip').addEventListener('click', () => {
-    if (state.settingsOpen) closeSettings();
-    state.pickerOpen = !state.pickerOpen;
-    $('model-chip').classList.toggle('on', state.pickerOpen);
+  // The model picker only opens from the icon at the left of the bar.
+  function setPickerOpen(open) {
+    if (state.pickerOpen === open) return;
+    state.pickerOpen = open;
+    $('model-toggle').classList.toggle('on', open);
+    $('model-toggle').setAttribute('aria-expanded', String(open));
     syncPanel();
+  }
+  $('model-toggle').addEventListener('click', () => {
+    if (state.settingsOpen) closeSettings();
+    setPickerOpen(!state.pickerOpen);
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (state.pickerOpen && !e.target.closest('#model-picker, #model-toggle')) setPickerOpen(false);
   });
 
   $('mp-local-prepare').addEventListener('click', async () => {

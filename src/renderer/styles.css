@@ -169,6 +169,10 @@ html, body {
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, .55), 0 2px 6px var(--accent-glow);
 }
 .mark svg { width: 16px; height: 16px; fill: var(--accent-text); }
+button.mark { border: 0; padding: 0; cursor: pointer; transition: transform .25s var(--spring), box-shadow .2s var(--ease); }
+button.mark:hover { transform: scale(1.08); }
+button.mark:active { transform: scale(.94); }
+button.mark.on { box-shadow: inset 0 1px 1px rgba(255, 255, 255, .55), 0 0 0 3px var(--accent-soft), 0 2px 8px var(--accent-glow); }
 .busy .mark svg { animation: spin 1.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -454,8 +458,6 @@ kbd {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), inset 0 0 0 1px var(--faint);
   transition: transform .35s var(--spring), background .2s var(--ease);
 }
-.model-chip:hover, .model-chip.on { background: var(--faint); }
-.model-chip:active { transform: scale(.92); }
 .model-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
 .model-chip[data-provider="local"] .model-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
 .model-chip[data-provider="anthropic"] .model-dot { background: var(--accent); color: var(--accent); }
