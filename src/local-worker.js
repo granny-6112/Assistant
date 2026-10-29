@@ -9,20 +9,26 @@ let gpu = false;
 const send = (msg) => process.parentPort.postMessage(msg);
 
 async function load({ model, mmproj, nCtx, threads, cpuOnly }) {
+  // llama.cpp reports progress from its own thread, so the last few reports
+  // can arrive after loadModel has resolved. Drop those, or the app would
+  // show "Loading" again after the model is ready.
+  let loading = true;
+  const progress = (p) => { if (loading) send({ type: 'progress', progress: p / 100 }); };
   const opts = { model, n_ctx: nCtx, n_threads: threads, n_gpu_layers: 99, use_mlock: false };
   try {
     if (cpuOnly) throw new Error('GPU disabled after an earlier crash');
     // Vulkan runs on the laptop's graphics chip (integrated Radeon included).
-    ctx = await loadModel({ ...opts, lib_variant: 'vulkan' }, (p) => send({ type: 'progress', progress: p / 100 }));
+    ctx = await loadModel({ ...opts, lib_variant: 'vulkan' }, progress);
     gpu = true;
   } catch (err) {
     send({ type: 'log', message: `Vulkan unavailable, using the CPU: ${err.message}` });
-    ctx = await loadModel({ ...opts, n_gpu_layers: 0 }, (p) => send({ type: 'progress', progress: p / 100 }));
+    ctx = await loadModel({ ...opts, n_gpu_layers: 0 }, progress);
     gpu = false;
   }
   if (!ctx.initMultimodal({ path: mmproj, use_gpu: gpu })) {
     throw new Error('The vision part of the offline model failed to load.');
   }
+  loading = false;
 }
 
 async function complete({ id, messages, nPredict }) {

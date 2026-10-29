@@ -129,6 +129,7 @@ function startWorker(files, cpuOnly) {
     let loaded = false;
     proc.on('message', (msg) => {
       if (msg.type === 'progress') {
+        if (loaded) return; // a late report from llama.cpp's loader thread
         setStatus({ state: 'loading', progress: msg.progress, message: 'Loading the offline model…' });
       } else if (msg.type === 'loaded') {
         loaded = true;
@@ -185,7 +186,7 @@ async function start(tierSetting) {
       }
       const { proc, gpu } = result;
       worker = { proc, tierKey, gpu };
-      setStatus({ state: 'ready', progress: 1, message: `${TIERS[tierKey].name} is ready (offline, ${gpu ? 'on the GPU' : 'on the CPU'}).` });
+      markReady(worker);
       return worker;
     } catch (err) {
       setStatus({ state: 'error', message: err.message });
@@ -195,6 +196,10 @@ async function start(tierSetting) {
     }
   })();
   return starting;
+}
+
+function markReady(w) {
+  setStatus({ state: 'ready', progress: 1, message: `${TIERS[w.tierKey].name} is ready (offline, ${w.gpu ? 'on the GPU' : 'on the CPU'}).` });
 }
 
 function stop() {
@@ -231,6 +236,7 @@ function toChatMessages(systemPrompt, messages) {
 async function streamLocal({ tierSetting, systemPrompt, messages, signal, onText }) {
   const w = await start(tierSetting);
   clearTimeout(idleTimer);
+  if (status.state !== 'ready') markReady(w);
   const id = ++requestSeq;
   try {
     const result = await new Promise((resolve, reject) => {
