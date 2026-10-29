@@ -16,6 +16,7 @@ const DEFAULTS = {
   recordAudio: true,
   liveGlass: 'always',      // live refracted backdrop: 'always' | 'plugged' (only on mains power) | 'off'
   glassTint: 'auto',        // 'auto' | 'dark' | 'light'
+  glassTransparency: 50,    // 0 = solid frosted glass, 100 = almost clear
   accentColor: '#d97757',   // drives every coloured element (buttons, slider, dots, links)
   launchAtLogin: false,
   copilotKey: true,         // the laptop Copilot key toggles the bar

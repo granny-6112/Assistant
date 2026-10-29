@@ -113,6 +113,10 @@
 
         <form id="settings" class="settings" hidden>
           <h2>Settings</h2>
+
+          <details class="section" data-section="keys">
+            <summary><span>API keys</span><small id="keys-summary" class="hint"></small></summary>
+            <div class="section-body">
           <label class="field">
             <span>Google AI Studio key (free) · <a href="https://aistudio.google.com/apikey" class="ext">get one</a></span>
             <div class="key-row">
@@ -130,33 +134,21 @@
             <small id="key-status-anthropic"></small>
           </label>
           <label class="field">
-            <span>Updates · GitHub token (read-only) · <a href="https://github.com/settings/personal-access-tokens/new" class="ext">make one</a></span>
+            <span>GitHub token for updates (read-only) · <a href="https://github.com/settings/personal-access-tokens/new" class="ext">make one</a></span>
             <div class="key-row">
               <input id="key-github" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
               <button type="button" class="pill-btn save-key" data-provider="github">Save</button>
             </div>
             <small id="key-status-github"></small>
-            <div class="update-row">
-              <small id="update-status" class="hint"></small>
-              <button type="button" id="update-action" class="pill-btn" hidden>Check now</button>
-            </div>
           </label>
-          <div class="field">
-            <span>Accent colour</span>
-            <div class="swatches" id="swatches">
-              <button type="button" class="swatch" style="--c:#d97757" data-color="#d97757" title="Clay"></button>
-              <button type="button" class="swatch" style="--c:#ff6b6b" data-color="#ff6b6b" title="Coral"></button>
-              <button type="button" class="swatch" style="--c:#f5a524" data-color="#f5a524" title="Amber"></button>
-              <button type="button" class="swatch" style="--c:#3fbf7f" data-color="#3fbf7f" title="Green"></button>
-              <button type="button" class="swatch" style="--c:#2bb3c0" data-color="#2bb3c0" title="Teal"></button>
-              <button type="button" class="swatch" style="--c:#4f8cff" data-color="#4f8cff" title="Blue"></button>
-              <button type="button" class="swatch" style="--c:#8b6bff" data-color="#8b6bff" title="Violet"></button>
-              <button type="button" class="swatch" style="--c:#e85d9c" data-color="#e85d9c" title="Pink"></button>
-              <button type="button" class="swatch" style="--c:#9aa0ab" data-color="#9aa0ab" title="Graphite"></button>
-              <label class="swatch swatch-custom" title="Any colour"><input type="color" id="accent-custom"></label>
             </div>
-          </div>
-          <div class="grid">
+          </details>
+
+          <details class="section" data-section="llm">
+            <summary><span>LLM settings</span><small class="hint">Models, effort, agent mode</small></summary>
+            <div class="section-body">
+              <p class="hint">Pick the model itself with the icon on the left of the bar.</p>
+              <div class="grid">
             <label class="field"><span>Offline model size</span>
               <select data-setting="localTier" id="local-tier">
                 <option value="auto">Auto</option>
@@ -172,18 +164,42 @@
                 <option value="high">High (hard problems)</option>
               </select>
             </label>
-            <label class="field"><span>Reveal when the mouse touches</span>
-              <select data-setting="revealZone">
-                <option value="full">Anywhere on the top edge</option>
-                <option value="center">Only the middle of the top edge</option>
-              </select>
-            </label>
             <label class="field"><span>Screenshot detail</span>
               <select data-setting="screenshotQuality">
                 <option value="standard">Standard (1920px, cheaper)</option>
                 <option value="high">High (2576px, reads small text)</option>
               </select>
             </label>
+              </div>
+              <div class="toggles">
+            <label class="switch"><input type="checkbox" data-setting="agentEnabled"><span></span>Agent mode: let Assistant control the mouse and keyboard (Gemini or Claude)</label>
+              </div>
+            </div>
+          </details>
+
+          <details class="section" data-section="look">
+            <summary><span>Personalization</span><small class="hint">Colour and transparency</small></summary>
+            <div class="section-body">
+          <div class="field">
+            <span>Accent colour</span>
+            <div class="swatches" id="swatches">
+              <button type="button" class="swatch" style="--c:#d97757" data-color="#d97757" title="Clay"></button>
+              <button type="button" class="swatch" style="--c:#ff6b6b" data-color="#ff6b6b" title="Coral"></button>
+              <button type="button" class="swatch" style="--c:#f5a524" data-color="#f5a524" title="Amber"></button>
+              <button type="button" class="swatch" style="--c:#3fbf7f" data-color="#3fbf7f" title="Green"></button>
+              <button type="button" class="swatch" style="--c:#2bb3c0" data-color="#2bb3c0" title="Teal"></button>
+              <button type="button" class="swatch" style="--c:#4f8cff" data-color="#4f8cff" title="Blue"></button>
+              <button type="button" class="swatch" style="--c:#8b6bff" data-color="#8b6bff" title="Violet"></button>
+              <button type="button" class="swatch" style="--c:#e85d9c" data-color="#e85d9c" title="Pink"></button>
+              <button type="button" class="swatch" style="--c:#9aa0ab" data-color="#9aa0ab" title="Graphite"></button>
+              <label class="swatch swatch-custom" title="Any colour"><input type="color" id="accent-custom"></label>
+            </div>
+          </div>
+              <label class="field">
+                <span>Glass transparency <b id="transparency-value"></b></span>
+                <input type="range" id="glass-transparency" data-setting="glassTransparency" data-number min="0" max="100" step="5">
+              </label>
+              <div class="grid">
             <label class="field"><span>Glass tint</span>
               <select data-setting="glassTint">
                 <option value="auto">Match Windows theme</option>
@@ -198,6 +214,20 @@
                 <option value="off">Off (frosted, lowest power)</option>
               </select>
             </label>
+              </div>
+            </div>
+          </details>
+
+          <details class="section" data-section="general">
+            <summary><span>General</span><small class="hint">Showing the bar, recording, updates</small></summary>
+            <div class="section-body">
+              <div class="grid">
+            <label class="field"><span>Reveal when the mouse touches</span>
+              <select data-setting="revealZone">
+                <option value="full">Anywhere on the top edge</option>
+                <option value="center">Only the middle of the top edge</option>
+              </select>
+            </label>
             <label class="field"><span>Reveal delay</span>
               <select data-setting="revealDelayMs" data-number>
                 <option value="0">Instant</option>
@@ -205,14 +235,23 @@
                 <option value="400">Long (0.4s)</option>
               </select>
             </label>
-          </div>
-          <div class="toggles">
+              </div>
+              <div class="toggles">
             <label class="switch"><input type="checkbox" data-setting="recordAudio"><span></span>Record system audio</label>
             <label class="switch"><input type="checkbox" data-setting="copilotKey"><span></span>Copilot key opens Assistant (applies after restart)</label>
             <label class="switch"><input type="checkbox" data-setting="launchAtLogin"><span></span>Start with Windows</label>
-            <label class="switch"><input type="checkbox" data-setting="agentEnabled"><span></span>Agent mode: let Assistant control the mouse and keyboard (Gemini or Claude)</label>
-          </div>
+              </div>
+              <div class="field">
+                <span>Updates</span>
+            <div class="update-row">
+              <small id="update-status" class="hint"></small>
+              <button type="button" id="update-action" class="pill-btn" hidden>Check now</button>
+            </div>
+              </div>
           <p class="hint">Shortcuts: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> show/hide · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ask about screen · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> record · <kbd>Esc</kbd> hide · Copilot key show/hide · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> stop the agent</p>
+            </div>
+          </details>
+
           <div class="settings-actions">
             <button type="button" id="recordings-folder" class="pill-btn ghost">Recordings folder</button>
             <button type="button" id="quit" class="pill-btn ghost danger">Quit</button>

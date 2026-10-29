@@ -99,6 +99,15 @@
     }
   }
 
+  // Scales the glass tint: 0 → about 1.8× as opaque as the default, 100 → nearly clear.
+  function applyTransparency(t) {
+    const v = Number.isFinite(Number(t)) ? Number(t) : 50;
+    document.documentElement.style.setProperty('--glass-k', String(1 + ((50 - v) / 50) * 0.8));
+    const label = $('transparency-value');
+    if (label) label.textContent = `${v}%`;
+  }
+  $('glass-transparency').addEventListener('input', (e) => applyTransparency(e.target.value));
+
   async function setAccent(hex) {
     applyAccent(hex);
     state.settings = await window.bar.saveSettings({ accentColor: hex });
@@ -324,7 +333,7 @@
     } else {
       msg.el.classList.add('error');
       msg.body.textContent = result.error;
-      if (result.needsKey) openSettings();
+      if (result.needsKey) openSettings('keys');
     }
 
     state.busy = false;
@@ -393,7 +402,7 @@
     } else {
       msg.el.classList.add('error');
       msg.body.textContent = result.error;
-      if (result.needsKey) openSettings();
+      if (result.needsKey) openSettings('keys');
     }
     state.busy = false;
     root.classList.remove('busy');
@@ -526,12 +535,19 @@
     if (!s.agentEnabled && state.agentMode) setAgentMode(false);
     applyTint();
     applyAccent(s.accentColor);
+    applyTransparency(s.glassTransparency);
+    renderKeysSummary(s.keys);
     renderUpdate(s.update, s.version);
     for (const provider of ['google', 'anthropic', 'github']) {
       const k = s.keys[provider];
       setKeyStatus(provider, k.has ? (k.fromEnv ? 'Using the key from your environment variables.' : 'Key saved (encrypted with your Windows account).') : 'No key yet.', k.has ? 'ok' : '');
     }
     renderPicker();
+  }
+
+  function renderKeysSummary(k) {
+    const mark = (x) => (x?.has ? '✓' : '–');
+    $('keys-summary').textContent = `Google ${mark(k.google)} · Anthropic ${mark(k.anthropic)} · GitHub ${mark(k.github)}`;
   }
 
   function setKeyStatus(provider, text, kind) {
@@ -578,6 +594,7 @@
       else setKeyStatus(provider, provider === 'github' ? 'Token saved and working. Checking for updates…' : 'Key saved and working (encrypted with your Windows account).', 'ok');
       if (r.ok && r.hasKey && /key/i.test(banner.textContent)) showBanner('');
       state.settings = await window.bar.getSettings();
+      renderKeysSummary(state.settings.keys);
       renderPicker();
     });
   }
@@ -725,7 +742,10 @@
     if (e.target.dataset.setting === 'localTier') setTimeout(loadModels, 50);
   });
 
-  function openSettings() {
+  function openSettings(section) {
+    if (section) {
+      for (const d of settingsForm.querySelectorAll('details.section')) d.open = d.dataset.section === section;
+    }
     state.settingsOpen = true;
     loadSettings();
     syncPanel();
@@ -744,7 +764,7 @@
   $('quit').addEventListener('click', () => window.bar.quit());
 
   window.bar.onOpenSettings(({ firstRun } = {}) => {
-    openSettings();
+    openSettings(firstRun ? 'keys' : null);
     if (firstRun) showBanner('Welcome! Paste a free Google AI Studio key below to start, or close Settings and slide the model to Offline to use the on-device model with no key.', 'info');
     setTimeout(() => $('key-google').focus(), 50);
   });
