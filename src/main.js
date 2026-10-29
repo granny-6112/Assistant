@@ -319,11 +319,14 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
       content,
       onText: (t) => send('ai-delta', t),
       onFallback: () => send('ai-fallback'),
+      onBusy: (text) => send('ai-status', text),
     });
-    return { ok: true, refused: result.refused, truncated: result.truncated, servedBy: result.servedBy };
+    return { ok: true, refused: result.refused, truncated: result.truncated, servedBy: result.servedBy, busyFallback: result.busyFallback };
   } catch (err) {
     if (isAbort(err)) return { ok: false, cancelled: true };
     return { ok: false, error: describeError(err, model) };
+  } finally {
+    send('ai-status', null);
   }
 });
 

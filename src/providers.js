@@ -118,6 +118,52 @@ async function streamGemini({ apiKey, model, messages, signal, onText }) {
   };
 }
 
+// Google's free tier answers 503 ("model overloaded") or 429 (quota) at busy
+// times. Retry the same model briefly, then step down to a lighter Gemini model,
+// but only before any text has streamed, so an answer is never stitched together.
+const GEMINI_RETRY_DELAYS_MS = [1000, 3000];
+const GEMINI_FALLBACK_ORDER = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
+
+function isGeminiBusy(err) {
+  return err instanceof GoogleApiError && (err.status === 503 || err.status === 429 || err.status === 500);
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(t); reject(abortError()); }, { once: true });
+  });
+}
+
+async function streamGeminiResilient(args) {
+  const start = GEMINI_FALLBACK_ORDER.indexOf(args.model);
+  const chain = start >= 0 ? GEMINI_FALLBACK_ORDER.slice(start) : [args.model, ...GEMINI_FALLBACK_ORDER];
+  let lastErr;
+  for (const [i, model] of chain.entries()) {
+    if (i > 0) args.onBusy?.(`${findModel(chain[i - 1]).name} is busy, trying ${findModel(model).name}…`);
+    for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {
+      let streamed = false;
+      try {
+        const result = await streamGemini({ ...args, model, onText: (t) => {
+          if (!streamed && (i > 0 || attempt > 0)) args.onBusy?.(null);
+          streamed = true;
+          args.onText(t);
+        } });
+        if (model !== args.model) result.busyFallback = findModel(model).name;
+        return result;
+      } catch (err) {
+        if (streamed || !isGeminiBusy(err)) throw err;
+        lastErr = err;
+        // A spent quota won't recover in seconds: move straight to the next model.
+        if (err.status === 429 || attempt === GEMINI_RETRY_DELAYS_MS.length) break;
+        args.onBusy?.(`${findModel(model).name} is busy, retrying…`);
+        await sleep(GEMINI_RETRY_DELAYS_MS[attempt], args.signal);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 function abortError() {
   const err = new Error('Aborted');
   err.name = 'AbortError';
@@ -142,15 +188,15 @@ class Conversation {
     this.controller = null;
   }
 
-  async ask({ model, apiKey, effort, localTier, content, onText, onFallback }) {
+  async ask({ model, apiKey, effort, localTier, content, onText, onFallback, onBusy }) {
     const userTurn = { role: 'user', content };
     const controller = new AbortController();
     this.controller = controller;
-    const args = { apiKey, model: model.id, effort, messages: [...this.history, userTurn], signal: controller.signal, onText, onFallback };
+    const args = { apiKey, model: model.id, effort, messages: [...this.history, userTurn], signal: controller.signal, onText, onFallback, onBusy };
     try {
       let result;
       if (model.provider === 'anthropic') result = await streamClaude(args);
-      else if (model.provider === 'google') result = await streamGemini(args);
+      else if (model.provider === 'google') result = await streamGeminiResilient(args);
       else result = await local.streamLocal({ ...args, tierSetting: localTier, systemPrompt: SYSTEM_PROMPT });
       if (!result.refused) {
         // Append only complete answers, so a cancelled or failed turn leaves no trace.
@@ -197,7 +243,8 @@ function describeError(err, model) {
   }
   if (err instanceof GoogleApiError) {
     if (err.status === 401 || (err.status === 400 && /api key/i.test(err.message))) return 'Your Google AI Studio key was rejected. Check it in Settings.';
-    if (err.status === 429) return `${model.name} hit its free-tier limit. Wait a minute, or slide to a lighter model.`;
+    if (err.status === 429) return "Google's free-tier limit is used up on every Gemini model right now. Wait a minute and try again, or slide to Offline.";
+    if (err.status === 503 || err.status === 500) return "Google's Gemini servers are overloaded right now (all free models were tried). Try again in a minute, or slide to Offline.";
     if (err.status === 403) return `Your Google key can't use ${model.name}.${model.id === 'gemini-4-argon' ? ' It needs billing turned on in Google AI Studio.' : ''}`;
     if (err.status === 404) return `${model.name} isn't available to your key. Slide to another model.`;
     return `Google API error ${err.status}: ${err.message}`;

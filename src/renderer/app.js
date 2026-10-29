@@ -77,6 +77,31 @@
   }
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTint);
 
+  function applyAccent(hex) {
+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return;
+    const root = document.documentElement.style;
+    root.setProperty('--accent', hex);
+    // Dark text on light accents (amber, graphite…), white on the rest.
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    root.setProperty('--accent-text', 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? '#15151b' : '#fff');
+    for (const sw of document.querySelectorAll('.swatch[data-color]')) sw.classList.toggle('on', sw.dataset.color.toLowerCase() === hex.toLowerCase());
+    const custom = $('accent-custom');
+    if (custom) {
+      custom.value = hex;
+      custom.parentElement.classList.toggle('on', !document.querySelector('.swatch[data-color].on'));
+      custom.parentElement.style.setProperty('--c', hex);
+    }
+  }
+
+  async function setAccent(hex) {
+    applyAccent(hex);
+    state.settings = await window.bar.saveSettings({ accentColor: hex });
+  }
+  for (const sw of document.querySelectorAll('.swatch[data-color]')) sw.addEventListener('click', () => setAccent(sw.dataset.color));
+  $('accent-custom').addEventListener('input', (e) => applyAccent(e.target.value));
+  $('accent-custom').addEventListener('change', (e) => setAccent(e.target.value));
+
   // Tell the main process how tall the window needs to be, at most once per
   // frame and only when it changed: resizing a transparent window is costly.
   let sentHeight = 0;
@@ -211,6 +236,7 @@
         renderMarkdown(msg.body, msg.text || '(no answer)');
         if (result.truncated) addNote(msg, 'The answer hit the length limit and was cut off.');
         if (fellBack) addNote(msg, `Finished by ${result.servedBy} after the first model declined.`);
+        if (result.busyFallback) addNote(msg, `Answered by ${result.busyFallback} because the model you picked was busy.`);
         addActions(msg);
       }
     } else if (result.cancelled) {
@@ -340,6 +366,7 @@
     }
     setIncludeScreen(s.includeScreen);
     applyTint();
+    applyAccent(s.accentColor);
     renderUpdate(s.update, s.version);
     for (const provider of ['google', 'anthropic', 'github']) {
       const k = s.keys[provider];
