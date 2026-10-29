@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:">
+  <title>Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Refraction filters. Their displacement maps are generated per element size in glass.js. -->
+  <svg class="defs" width="0" height="0" aria-hidden="true">
+    <filter id="lens-bar" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feImage result="map" preserveAspectRatio="none"/>
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="lens-panel" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feImage result="map" preserveAspectRatio="none"/>
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="36" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+
+  <video id="backdrop-video" muted playsinline></video>
+
+  <main id="root" class="concealed">
+    <section class="glass bar" id="bar" data-lens="lens-bar">
+      <canvas class="glass-refraction"></canvas>
+      <div class="glass-tint"></div>
+      <div class="glass-sheen"></div>
+      <div class="glass-glow"></div>
+
+      <div class="bar-row">
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2.5l1.6 6.2 6.2-2.3-4.4 4.9 5.1 3.9-6.4.2.6 6.4-2.7-5.8-2.7 5.8.6-6.4-6.4-.2 5.1-3.9-4.4-4.9 6.2 2.3z"/></svg>
+        </div>
+        <input id="question" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Ask about your screen…">
+        <button id="send" class="pill-btn primary" title="Ask (Enter)">
+          <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+        <span class="divider"></span>
+        <button id="model-chip" class="model-chip" title="Choose the AI model">
+          <span class="model-dot"></span><span id="model-chip-label">Smart</span>
+        </button>
+        <button id="toggle-screen" class="icon-btn on" title="Include a screenshot of your screen">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20"/></svg>
+        </button>
+        <button id="record" class="icon-btn record" title="Record your screen (Alt+Shift+R)">
+          <span class="rec-dot"></span><span class="rec-time" id="rec-time"></span>
+        </button>
+        <button id="new-chat" class="icon-btn" title="New conversation">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button id="pin" class="icon-btn" title="Keep the bar open">
+          <svg viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3 3H7l3-3zM12 12v8"/></svg>
+        </button>
+        <button id="open-settings" class="icon-btn" title="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <section class="glass panel" id="panel" data-lens="lens-panel" hidden>
+      <canvas class="glass-refraction"></canvas>
+      <div class="glass-tint"></div>
+      <div class="glass-sheen"></div>
+      <div class="glass-glow"></div>
+
+      <div class="panel-body">
+        <div id="banner" class="banner" hidden></div>
+
+        <div id="recording-chip" class="chips" hidden>
+          <button id="attach-recording" class="chip">
+            <span class="chip-dot"></span><span id="recording-label">Last recording</span>
+          </button>
+          <button id="reveal-recording" class="chip ghost">Show in folder</button>
+        </div>
+
+        <div id="model-picker" class="model-picker" hidden>
+          <div class="mp-head">
+            <span id="mp-name" class="mp-name"></span>
+            <span id="mp-badge" class="badge"></span>
+          </div>
+          <input type="range" id="model-slider" min="0" max="5" step="1" aria-label="AI model">
+          <div id="mp-ticks" class="mp-ticks"></div>
+          <p id="mp-note" class="hint"></p>
+          <div id="mp-local" class="mp-local" hidden>
+            <div class="progress"><div id="mp-progress"></div></div>
+            <div class="mp-local-row">
+              <span id="mp-local-status" class="hint"></span>
+              <button type="button" id="mp-local-prepare" class="pill-btn">Download</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="messages" class="messages"></div>
+
+        <form id="settings" class="settings" hidden>
+          <h2>Settings</h2>
+          <label class="field">
+            <span>Google AI Studio key (free) · <a href="https://aistudio.google.com/apikey" class="ext">get one</a></span>
+            <div class="key-row">
+              <input id="key-google" type="password" placeholder="Paste your Google AI Studio key" autocomplete="off" spellcheck="false">
+              <button type="button" class="pill-btn save-key" data-provider="google">Save</button>
+            </div>
+            <small id="key-status-google"></small>
+          </label>
+          <label class="field">
+            <span>Anthropic API key (optional, paid) · <a href="https://console.anthropic.com/settings/keys" class="ext">get one</a></span>
+            <div class="key-row">
+              <input id="key-anthropic" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+              <button type="button" class="pill-btn save-key" data-provider="anthropic">Save</button>
+            </div>
+            <small id="key-status-anthropic"></small>
+          </label>
+          <label class="field">
+            <span>Updates · GitHub token (read-only) · <a href="https://github.com/settings/personal-access-tokens/new" class="ext">make one</a></span>
+            <div class="key-row">
+              <input id="key-github" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
+              <button type="button" class="pill-btn save-key" data-provider="github">Save</button>
+            </div>
+            <small id="key-status-github"></small>
+            <div class="update-row">
+              <small id="update-status" class="hint"></small>
+              <button type="button" id="update-action" class="pill-btn" hidden>Check now</button>
+            </div>
+          </label>
+          <div class="grid">
+            <label class="field"><span>Offline model size</span>
+              <select data-setting="localTier" id="local-tier">
+                <option value="auto">Auto</option>
+                <option value="small">Small: Gemma 4 E2B (~3.5 GB)</option>
+                <option value="medium">Medium: Gemma 4 E4B (~5.5 GB)</option>
+                <option value="large">Large: Gemma 4 26B-A4B (~17 GB, 32 GB RAM)</option>
+              </select>
+            </label>
+            <label class="field"><span>Claude effort</span>
+              <select data-setting="effort">
+                <option value="low">Low (quick answers)</option>
+                <option value="medium">Medium</option>
+                <option value="high">High (hard problems)</option>
+              </select>
+            </label>
+            <label class="field"><span>Reveal when the mouse touches</span>
+              <select data-setting="revealZone">
+                <option value="full">Anywhere on the top edge</option>
+                <option value="center">Only the middle of the top edge</option>
+              </select>
+            </label>
+            <label class="field"><span>Screenshot detail</span>
+              <select data-setting="screenshotQuality">
+                <option value="standard">Standard (1920px, cheaper)</option>
+                <option value="high">High (2576px, reads small text)</option>
+              </select>
+            </label>
+            <label class="field"><span>Glass tint</span>
+              <select data-setting="glassTint">
+                <option value="auto">Match Windows theme</option>
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </label>
+            <label class="field"><span>Live glass (refracts what's behind the bar)</span>
+              <select data-setting="liveGlass">
+                <option value="always">Always</option>
+                <option value="plugged">Only when plugged in (saves battery)</option>
+                <option value="off">Off (frosted, lowest power)</option>
+              </select>
+            </label>
+            <label class="field"><span>Reveal delay</span>
+              <select data-setting="revealDelayMs" data-number>
+                <option value="0">Instant</option>
+                <option value="150">Short (0.15s)</option>
+                <option value="400">Long (0.4s)</option>
+              </select>
+            </label>
+          </div>
+          <div class="toggles">
+            <label class="switch"><input type="checkbox" data-setting="recordAudio"><span></span>Record system audio</label>
+            <label class="switch"><input type="checkbox" data-setting="copilotKey"><span></span>Copilot key opens Assistant (applies after restart)</label>
+            <label class="switch"><input type="checkbox" data-setting="launchAtLogin"><span></span>Start with Windows</label>
+          </div>
+          <p class="hint">Shortcuts: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> show/hide · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ask about screen · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> record · <kbd>Esc</kbd> hide · Copilot key show/hide</p>
+          <div class="settings-actions">
+            <button type="button" id="recordings-folder" class="pill-btn ghost">Recordings folder</button>
+            <button type="button" id="quit" class="pill-btn ghost danger">Quit</button>
+            <button type="button" id="close-settings" class="pill-btn primary">Done</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="../../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="glass.js"></script>
+  <script src="recorder.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
