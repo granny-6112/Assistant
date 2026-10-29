@@ -30,11 +30,19 @@ function updater() {
   autoUpdater.logger = null;
   autoUpdater.on('checking-for-update', () => setStatus({ state: 'checking' }));
   autoUpdater.on('update-not-available', () => setStatus({ state: 'none', version: app.getVersion() }));
-  autoUpdater.on('update-available', (info) => setStatus({ state: 'downloading', version: info.version, progress: 0 }));
+  autoUpdater.on('update-available', (info) => setStatus({ state: 'downloading', version: info.version, notes: notesOf(info), progress: 0 }));
   autoUpdater.on('download-progress', (p) => setStatus({ ...status, state: 'downloading', progress: p.percent / 100 }));
-  autoUpdater.on('update-downloaded', (info) => setStatus({ state: 'ready', version: info.version }));
+  autoUpdater.on('update-downloaded', (info) => setStatus({ state: 'ready', version: info.version, notes: notesOf(info) || status.notes }));
   autoUpdater.on('error', (err) => setStatus({ state: 'error', message: describe(err) }));
   return autoUpdater;
+}
+
+// The GitHub release body, as HTML (the renderer sanitises it).
+function notesOf(info) {
+  const n = info?.releaseNotes;
+  if (!n) return '';
+  if (Array.isArray(n)) return n.map((x) => x.note || '').join('');
+  return String(n);
 }
 
 function describe(err) {

@@ -15,6 +15,10 @@
       <feImage result="map" preserveAspectRatio="none"/>
       <feDisplacementMap in="SourceGraphic" in2="map" scale="40" xChannelSelector="R" yChannelSelector="G"/>
     </filter>
+    <filter id="lens-pop" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feImage result="map" preserveAspectRatio="none"/>
+      <feDisplacementMap in="SourceGraphic" in2="map" scale="30" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
     <filter id="lens-panel" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
       <feImage result="map" preserveAspectRatio="none"/>
       <feDisplacementMap in="SourceGraphic" in2="map" scale="36" xChannelSelector="R" yChannelSelector="G"/>
@@ -31,8 +35,9 @@
       <div class="glass-glow"></div>
 
       <div class="bar-row">
-        <button id="model-toggle" class="mark" title="Choose the AI model" aria-expanded="false" aria-controls="model-picker">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l1.6 6.2 6.2-2.3-4.4 4.9 5.1 3.9-6.4.2.6 6.4-2.7-5.8-2.7 5.8.6-6.4-6.4-.2 5.1-3.9-4.4-4.9 6.2 2.3z"/></svg>
+        <button id="mic" class="mark mic" title="Ask with your voice (click to start, click again to send)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5M9 20.5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span id="mic-time" class="mic-time"></span>
         </button>
         <input id="question" type="text" autocomplete="off" spellcheck="false"
                placeholder="Ask about your screen…">
@@ -44,9 +49,9 @@
           <svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
         </button>
         <span class="divider"></span>
-        <span id="model-chip" class="model-chip" title="Current AI model (click the icon on the left to change it)">
+        <button id="model-chip" class="model-chip" title="Choose the AI model" aria-expanded="false" aria-controls="model-pop">
           <span class="model-dot"></span><span id="model-chip-label">Smart</span>
-        </span>
+        </button>
         <button id="agent-mode" class="icon-btn" title="Agent mode: Assistant does the task on your PC" hidden>
           <svg viewBox="0 0 24 24"><path d="M5 3.5l13 6.2-5.6 1.7 3.6 6.4-2.4 1.4-3.6-6.4-4.2 4z"/></svg>
         </button>
@@ -68,6 +73,32 @@
       </div>
     </section>
 
+    <section class="glass popover" id="model-pop" data-lens="lens-pop" hidden>
+      <canvas class="glass-refraction"></canvas>
+      <div class="glass-tint"></div>
+      <div class="glass-sheen"></div>
+      <div class="glass-glow"></div>
+      <div class="popover-body">
+        <div id="model-picker" class="model-picker">
+          <div class="mp-head">
+            <span id="mp-name" class="mp-name"></span>
+            <span id="mp-badge" class="badge"></span>
+          </div>
+          <input type="range" id="model-slider" min="0" max="5" step="1" aria-label="AI model">
+          <div id="mp-ticks" class="mp-ticks"></div>
+          <p id="mp-note" class="hint"></p>
+          <div id="mp-local" class="mp-local" hidden>
+            <div class="progress"><div id="mp-progress"></div></div>
+            <div class="mp-local-row">
+              <span id="mp-local-status" class="hint"></span>
+              <button type="button" id="mp-local-prepare" class="pill-btn">Download</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
     <section class="glass panel" id="panel" data-lens="lens-panel" hidden>
       <canvas class="glass-refraction"></canvas>
       <div class="glass-tint"></div>
@@ -76,6 +107,35 @@
 
       <div class="panel-body">
         <div id="banner" class="banner" hidden></div>
+
+        <div id="setup" class="setup" hidden>
+          <h2>Welcome to Assistant</h2>
+          <p class="hint">Assistant answers questions about your screen. To do that it needs a free Gemini key from Google. It takes about a minute.</p>
+          <ol class="setup-steps">
+            <li>
+              <p><b>Get your free key.</b> Sign in with any Google account, click <i>Create API key</i>, then copy it.</p>
+              <div><button type="button" id="setup-open" class="pill-btn">Open Google AI Studio</button></div>
+            </li>
+            <li>
+              <p><b>Paste it here.</b></p>
+              <div class="key-row">
+                <input id="setup-key" type="password" placeholder="Paste your key" autocomplete="off" spellcheck="false">
+                <button type="button" id="setup-save" class="pill-btn primary">Save</button>
+              </div>
+              <small id="setup-status"></small>
+            </li>
+            <li>
+              <p><b>Allow the microphone</b> (optional), so you can ask out loud with the mic button.</p>
+              <div class="mic-row"><button type="button" id="setup-mic" class="pill-btn">Allow microphone</button><small id="setup-mic-status"></small></div>
+              <button type="button" id="setup-mic-settings" class="link-btn" hidden>Open Windows microphone settings</button>
+            </li>
+          </ol>
+          <div id="setup-done" class="setup-done" hidden>
+            <p><b>You're all set.</b> Push your mouse to the top of the screen (or press the Copilot key) whenever you want Assistant. Try asking "what's on my screen?".</p>
+            <button type="button" id="setup-finish" class="pill-btn primary">Start</button>
+          </div>
+          <button type="button" id="setup-skip" class="link-btn">No Google account? Use the offline model instead</button>
+        </div>
 
         <div id="agent-confirm" class="agent-confirm" hidden>
           <p class="agent-confirm-title">Assistant wants to:</p>
@@ -93,27 +153,13 @@
           <button id="reveal-recording" class="chip ghost">Show in folder</button>
         </div>
 
-        <div id="model-picker" class="model-picker" hidden>
-          <div class="mp-head">
-            <span id="mp-name" class="mp-name"></span>
-            <span id="mp-badge" class="badge"></span>
-          </div>
-          <input type="range" id="model-slider" min="0" max="5" step="1" aria-label="AI model">
-          <div id="mp-ticks" class="mp-ticks"></div>
-          <p id="mp-note" class="hint"></p>
-          <div id="mp-local" class="mp-local" hidden>
-            <div class="progress"><div id="mp-progress"></div></div>
-            <div class="mp-local-row">
-              <span id="mp-local-status" class="hint"></span>
-              <button type="button" id="mp-local-prepare" class="pill-btn">Download</button>
-            </div>
-          </div>
-        </div>
-
         <div id="messages" class="messages"></div>
 
         <form id="settings" class="settings" hidden>
           <h2>Settings</h2>
+          <button type="button" id="update-callout" class="update-callout" hidden>
+            <span class="update-callout-dot"></span><span id="update-callout-text">Update available</span><span class="update-callout-go">See what's new →</span>
+          </button>
 
           <details class="section" data-section="keys">
             <summary><span>API keys</span><small id="keys-summary" class="hint"></small></summary>
@@ -216,8 +262,22 @@
             </div>
           </details>
 
+          <details class="section" data-section="updates">
+            <summary><span>Updates</span><small id="updates-summary" class="hint"></small></summary>
+            <div class="section-body">
+              <div class="update-row">
+                <div>
+                  <div id="update-version" class="update-version"></div>
+                  <small id="update-status" class="hint"></small>
+                </div>
+                <button type="button" id="update-action" class="pill-btn">Check now</button>
+              </div>
+              <div id="update-notes" class="update-notes md" hidden></div>
+            </div>
+          </details>
+
           <details class="section" data-section="general">
-            <summary><span>General</span><small class="hint">Showing the bar, recording, updates</small></summary>
+            <summary><span>General</span><small class="hint">Showing the bar, recording, history</small></summary>
             <div class="section-body">
               <div class="grid">
             <label class="field"><span>Reveal when the mouse touches</span>
@@ -240,13 +300,6 @@
             <label class="switch"><input type="checkbox" data-setting="launchAtLogin"><span></span>Start with Windows</label>
                 <label class="switch"><input type="checkbox" data-setting="saveHistory"><span></span>Save conversations on this PC so Claude can read them (screenshots are never saved)</label>
               </div>
-              <div class="field">
-                <span>Updates</span>
-            <div class="update-row">
-              <small id="update-status" class="hint"></small>
-              <button type="button" id="update-action" class="pill-btn" hidden>Check now</button>
-            </div>
-              </div>
           <p class="hint">Shortcuts: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> show/hide · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ask about screen · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> record · <kbd>Esc</kbd> hide · Copilot key show/hide · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> stop the agent</p>
             </div>
           </details>
@@ -266,6 +319,7 @@
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script src="glass.js"></script>
   <script src="recorder.js"></script>
+  <script src="voice.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

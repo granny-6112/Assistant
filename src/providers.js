@@ -2,9 +2,24 @@
 // Conversation history is kept provider-neutral (Anthropic-style content
 // blocks holding text and base64 JPEGs), so you can slide to another model in
 // the middle of a conversation and it still sees what came before.
-const Anthropic = require('@anthropic-ai/sdk');
-const { GoogleGenAI, ApiError: GoogleApiError } = require('@google/genai');
+// Both SDKs load on first use, not at startup: Assistant starts faster and
+// stays lighter while it sits in the background.
+let anthropicSdk = null;
+let googleSdk = null;
+const Anthropic = () => (anthropicSdk ||= require('@anthropic-ai/sdk'));
+const GoogleGenAI = () => (googleSdk ||= require('@google/genai')).GoogleGenAI;
+// Error checks never load an SDK: if it isn't loaded yet, the error can't be its.
+function loadedSdk(id) {
+  try {
+    return require.cache[require.resolve(id)] ? require(id) : null;
+  } catch {
+    return null;
+  }
+}
+const isGoogleErr = (err) => { const g = loadedSdk('@google/genai'); return Boolean(g) && err instanceof g.ApiError; };
+const isAnthropicErr = (err, kind = 'APIError') => { const a = loadedSdk('@anthropic-ai/sdk'); return Boolean(a) && err instanceof a[kind]; };
 const local = require('./local');
+const usage = require('./usage');
 
 const SYSTEM_PROMPT = `You are Assistant, a helper that lives in a bar at the top of the user's Windows desktop.
 When the user's message includes a screenshot, it shows their screen at the moment they asked; frames from a screen recording are labelled with their timestamps.
@@ -39,7 +54,7 @@ const CLAUDE_FALLBACK_MODELS = new Set(['claude-opus-5-5', 'claude-opus-5', 'cla
 const anthropicClients = new Map();
 
 async function streamClaude({ apiKey, model, effort, messages, signal, onText, onFallback }) {
-  if (!anthropicClients.has(apiKey)) anthropicClients.set(apiKey, new Anthropic({ apiKey }));
+  if (!anthropicClients.has(apiKey)) anthropicClients.set(apiKey, new (Anthropic())({ apiKey }));
   const client = anthropicClients.get(apiKey);
   const params = {
     model,
@@ -88,8 +103,9 @@ function toGeminiContents(messages) {
 const GEMINI_BLOCKED = new Set(['SAFETY', 'RECITATION', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'IMAGE_SAFETY']);
 
 async function streamGemini({ apiKey, model, messages, signal, onText }) {
-  if (!googleClients.has(apiKey)) googleClients.set(apiKey, new GoogleGenAI({ apiKey }));
+  if (!googleClients.has(apiKey)) googleClients.set(apiKey, new (GoogleGenAI())({ apiKey }));
   const ai = googleClients.get(apiKey);
+  usage.count(model);
   const stream = await ai.models.generateContentStream({
     model,
     contents: toGeminiContents(messages),
@@ -124,8 +140,18 @@ async function streamGemini({ apiKey, model, messages, signal, onText }) {
 const GEMINI_RETRY_DELAYS_MS = [1000, 3000];
 const GEMINI_FALLBACK_ORDER = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 
+// What kind of limit a Gemini 429 is: the free day's quota or a per-minute cap.
+function geminiLimit(err) {
+  const msg = err?.message || '';
+  const retry = msg.match(/retryDelay"?\s*:\s*"?(\d+(?:\.\d+)?)s/);
+  return {
+    perDay: /PerDay/i.test(msg),
+    retrySeconds: retry ? Math.ceil(Number(retry[1])) : null,
+  };
+}
+
 function isGeminiBusy(err) {
-  return err instanceof GoogleApiError && (err.status === 503 || err.status === 429 || err.status === 500);
+  return isGoogleErr(err) && (err.status === 503 || err.status === 429 || err.status === 500);
 }
 
 function sleep(ms, signal) {
@@ -154,11 +180,41 @@ async function streamGeminiResilient(args) {
       } catch (err) {
         if (streamed || !isGeminiBusy(err)) throw err;
         lastErr = err;
+        if (err.status === 429 && geminiLimit(err).perDay) usage.hitDailyLimit(model);
         // A spent quota won't recover in seconds: move straight to the next model.
         if (err.status === 429 || attempt === GEMINI_RETRY_DELAYS_MS.length) break;
         args.onBusy?.(`${findModel(model).name} is busy, retrying…`);
         await sleep(GEMINI_RETRY_DELAYS_MS[attempt], args.signal);
       }
+    }
+  }
+  throw lastErr;
+}
+
+// Speech to text for the mic button, with Gemini (free key). Tries the light
+// model first and steps up if it is busy.
+async function transcribe(apiKey, wavBase64) {
+  if (!googleClients.has(apiKey)) googleClients.set(apiKey, new (GoogleGenAI())({ apiKey }));
+  const ai = googleClients.get(apiKey);
+  let lastErr;
+  for (const model of ['gemini-3.5-flash-lite', 'gemini-3.6-flash']) {
+    try {
+      usage.count(model);
+      const res = await ai.models.generateContent({
+        model,
+        contents: [{
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: 'audio/wav', data: wavBase64 } },
+            { text: 'Transcribe this speech exactly as spoken, in the language spoken, with normal punctuation. Reply with only the transcript. If there is no speech, reply with nothing.' },
+          ],
+        }],
+        config: { maxOutputTokens: 2000 },
+      });
+      return (res.text || '').trim();
+    } catch (err) {
+      lastErr = err;
+      if (!isGeminiBusy(err)) break;
     }
   }
   throw lastErr;
@@ -214,9 +270,9 @@ class Conversation {
 async function verifyKey(provider, apiKey) {
   try {
     if (provider === 'google') {
-      await new GoogleGenAI({ apiKey }).models.get({ model: DEFAULT_MODEL });
+      await new (GoogleGenAI())({ apiKey }).models.get({ model: DEFAULT_MODEL });
     } else {
-      await new Anthropic({ apiKey }).models.list({ limit: 1 });
+      await new (Anthropic())({ apiKey }).models.list({ limit: 1 });
     }
     return { valid: true };
   } catch (err) {
@@ -230,34 +286,50 @@ async function verifyKey(provider, apiKey) {
 }
 
 function isAbort(err) {
-  return err instanceof Anthropic.APIUserAbortError || err?.name === 'AbortError';
+  return isAnthropicErr(err, 'APIUserAbortError') || err?.name === 'AbortError';
 }
 
+const NETWORK = /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network|socket hang up/i;
+
+// Every message says what happened and what to do next, in plain words.
 function describeError(err, model) {
-  const provider = PROVIDERS[model.provider].name;
+  const msg = err?.message || String(err);
   if (model.provider === 'local') {
-    if (/fetch failed|ENOTFOUND|EAI_AGAIN/i.test(err?.message || '')) {
-      return 'The offline model needs internet once, to download. Connect and try again.';
+    if (NETWORK.test(msg)) return 'The offline model has to download once before it works offline, and there is no internet right now. Connect and try again, or slide to a cloud model.';
+    if (/out of memory|alloc|ENOMEM/i.test(msg)) return 'Your PC ran out of memory loading the offline model. Close some apps, or pick the Small size in Settings → LLM settings.';
+    if (/ENOSPC|no space/i.test(msg)) return 'Not enough disk space for the offline model. Free up a few GB and try again.';
+    return `The offline model hit a problem: ${msg}. Try again; if it keeps happening, pick a smaller size in Settings → LLM settings.`;
+  }
+  if (NETWORK.test(msg) && !(isGoogleErr(err)) && !(isAnthropicErr(err, 'APIError') && err.status)) {
+    return "You're offline, or the internet connection dropped. Check your Wi-Fi and try again, or slide to Offline.";
+  }
+  if (isGoogleErr(err)) {
+    const s = err.status;
+    if (s === 401 || (s === 400 && /api key|API_KEY/i.test(msg))) return 'Google rejected your key. Open Settings → API keys and paste a fresh one from aistudio.google.com/apikey.';
+    if (s === 429) {
+      const lim = geminiLimit(err);
+      if (lim.perDay) return `You've used today's free Gemini allowance on every model. It resets at ${usage.resetTime()} your time. Until then, slide to Offline (or add billing to your Google key).`;
+      return `Google's free tier allows only a few requests a minute and you've hit that. Wait ${lim.retrySeconds ? `${lim.retrySeconds} seconds` : 'a minute'} and ask again.`;
     }
-    return `Offline model error: ${err?.message || err}`;
+    if (s === 503 || s === 500 || s === 504) return "Google's free Gemini servers are overloaded right now. Every free model was tried. Wait a minute and ask again, or slide to Offline.";
+    if (s === 403) return model.id === 'gemini-4-argon'
+      ? 'Gemini 4 Argon is not on the free tier. Turn on billing for your key in Google AI Studio, or slide to Smart.'
+      : `Your Google key isn't allowed to use ${model.name}. Check the key in Google AI Studio, or slide to another model.`;
+    if (s === 404) return `${model.name} isn't available to your key (Google may have renamed or retired it). Slide to another model.`;
+    if (s === 400 && /too large|exceeds|size|payload/i.test(msg)) return 'That was too much for Gemini in one go (usually a very large screenshot or recording). Turn screenshot detail down to Standard, or ask without the recording.';
+    if (s === 400) return `Gemini couldn't process that request. Try asking again, or without the screenshot. (Google said: ${msg.slice(0, 160)})`;
+    return `Google returned an unexpected error (${s}). Try again in a moment, or slide to another model.`;
   }
-  if (err instanceof GoogleApiError) {
-    if (err.status === 401 || (err.status === 400 && /api key/i.test(err.message))) return 'Your Google AI Studio key was rejected. Check it in Settings.';
-    if (err.status === 429) return "Google's free-tier limit is used up on every Gemini model right now. Wait a minute and try again, or slide to Offline.";
-    if (err.status === 503 || err.status === 500) return "Google's Gemini servers are overloaded right now (all free models were tried). Try again in a minute, or slide to Offline.";
-    if (err.status === 403) return `Your Google key can't use ${model.name}.${model.id === 'gemini-4-argon' ? ' It needs billing turned on in Google AI Studio.' : ''}`;
-    if (err.status === 404) return `${model.name} isn't available to your key. Slide to another model.`;
-    return `Google API error ${err.status}: ${err.message}`;
-  }
-  if (err instanceof Anthropic.AuthenticationError) return 'Your Anthropic API key was rejected. Check it in Settings.';
-  if (err instanceof Anthropic.PermissionDeniedError) return `This Anthropic key does not have access to ${model.name}.`;
-  if (err instanceof Anthropic.NotFoundError) return `${model.name} was not found.`;
-  if (err instanceof Anthropic.RateLimitError) return 'Rate limited by Anthropic. Wait a moment and try again.';
-  if (err instanceof Anthropic.BadRequestError) return `The request was rejected: ${err.message}`;
-  if (err instanceof Anthropic.APIConnectionError) return `Could not reach ${provider}. Check your internet connection.`;
-  if (err instanceof Anthropic.APIError) return `Anthropic API error ${err.status ?? ''}: ${err.message}`;
-  if (/fetch failed|ENOTFOUND|ECONNREFUSED|network/i.test(err?.message || '')) return `Could not reach ${provider}. Check your internet connection.`;
-  return err?.message || String(err);
+  if (isAnthropicErr(err, 'AuthenticationError')) return 'Anthropic rejected your key. Open Settings → API keys and paste a fresh one from console.anthropic.com.';
+  if (isAnthropicErr(err, 'PermissionDeniedError')) return `Your Anthropic key can't use ${model.name}. Check your account at console.anthropic.com.`;
+  if (isAnthropicErr(err, 'NotFoundError')) return `${model.name} wasn't found. Slide to another model.`;
+  if (isAnthropicErr(err, 'RateLimitError')) return "You're sending Claude requests faster than your Anthropic plan allows. Wait a minute and try again.";
+  if (isAnthropicErr(err, 'BadRequestError') && /credit balance/i.test(msg)) return 'Your Anthropic account is out of credit. Top up at console.anthropic.com → Billing, or slide to a Gemini model.';
+  if (isAnthropicErr(err, 'BadRequestError')) return `Claude couldn't process that request. Try again, or without the screenshot. (Anthropic said: ${msg.slice(0, 160)})`;
+  if (isAnthropicErr(err, 'InternalServerError') || err?.status === 529) return 'Claude is overloaded right now. Wait a minute and try again, or slide to a Gemini model.';
+  if (isAnthropicErr(err, 'APIConnectionError')) return "Couldn't reach Anthropic. Check your internet connection and try again.";
+  if (isAnthropicErr(err, 'APIError')) return `Anthropic returned an unexpected error (${err.status ?? 'unknown'}). Try again in a moment.`;
+  return `Something went wrong: ${msg}. Try again; if it keeps happening, start a new chat with the + button.`;
 }
 
-module.exports = { MODELS, DEFAULT_MODEL, PROVIDERS, findModel, Conversation, describeError, isAbort, verifyKey };
+module.exports = { transcribe, MODELS, DEFAULT_MODEL, PROVIDERS, findModel, Conversation, describeError, isAbort, verifyKey };

@@ -1,16 +1,15 @@
 const {
   app, BrowserWindow, ipcMain, screen, desktopCapturer, globalShortcut,
-  Tray, Menu, nativeImage, shell, dialog, powerMonitor,
+  Tray, Menu, nativeImage, shell, dialog, powerMonitor, systemPreferences,
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const settings = require('./settings');
-const { MODELS, PROVIDERS, findModel, Conversation, describeError, isAbort, verifyKey } = require('./providers');
+const { MODELS, PROVIDERS, findModel, Conversation, describeError, isAbort, verifyKey, transcribe } = require('./providers');
 const local = require('./local');
 const updater = require('./updater');
-const agent = require('./agent');
 const history = require('./history');
-const input = require('./input');
+const usage = require('./usage');
 
 const WIN_WIDTH = 780;        // bar is 740 wide plus room for its shadow
 const COLLAPSED_HEIGHT = 96;
@@ -61,11 +60,12 @@ function init() {
   powerMonitor.on('unlock-screen', resumePolling);
   powerMonitor.on('resume', resumePolling);
 
-  // First run: open the bar on the settings page so the user can paste a key.
+  // First run: open the bar on a short walkthrough for getting a free key.
   win.webContents.once('did-finish-load', () => {
-    if (!settings.getApiKey('google') && !settings.getApiKey('anthropic')) {
+    const s = settings.load();
+    if (!s.setupDone && !settings.getApiKey('google') && !settings.getApiKey('anthropic')) {
       showBar({ focus: true });
-      send('open-settings', { firstRun: true });
+      send('first-run');
     }
   });
 }
@@ -91,6 +91,8 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       backgroundThrottling: true, // turned off only while recording, so a hidden bar costs nothing
+      spellcheck: false,          // no dictionary to load; the input never underlines anything
+      v8CacheOptions: 'bypassHeatCheck', // cache compiled scripts so later launches start faster
     },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
@@ -328,7 +330,8 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
       onBusy: (text) => send('ai-status', text),
     });
     if (!result.refused) saveTurn({ question: text, answer: result.text || '', model: result.busyFallback || model.name, attachments });
-    return { ok: true, refused: result.refused, truncated: result.truncated, servedBy: result.servedBy, busyFallback: result.busyFallback };
+    const used = model.provider === 'google' ? { ...usage.forModel(result.servedBy || model.id), name: result.busyFallback || model.name } : null;
+    return { ok: true, refused: result.refused, truncated: result.truncated, servedBy: result.servedBy, busyFallback: result.busyFallback, usage: used };
   } catch (err) {
     if (isAbort(err)) return { ok: false, cancelled: true };
     return { ok: false, error: describeError(err, model) };
@@ -338,6 +341,19 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
 });
 
 ipcMain.handle('cancel', () => conversation.cancel());
+
+ipcMain.handle('transcribe', async (_e, wav) => {
+  const apiKey = settings.getApiKey('google');
+  if (!apiKey) return { ok: false, error: 'Voice input uses your free Google Gemini key to turn speech into text. Add one in Settings → API keys.' };
+  try {
+    return { ok: true, text: await transcribe(apiKey, Buffer.from(wav).toString('base64')) };
+  } catch (err) {
+    return { ok: false, error: describeError(err, findModel('gemini-3.5-flash-lite')) };
+  }
+});
+
+ipcMain.handle('mic-status', () => (process.platform === 'win32' || process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'granted'));
+ipcMain.on('open-mic-settings', () => { if (process.platform === 'win32') shell.openExternal('ms-settings:privacy-microphone'); });
 
 // ---------- agent mode ----------
 
@@ -428,7 +444,8 @@ ipcMain.handle('agent-run', async (_e, { task }) => {
   send('agent-state', { running: true, step: 0, text: 'Starting…' });
   refreshTray();
   try {
-    const result = await agent.run({
+    // Agent mode (and its mouse and keyboard module) loads on first use.
+    const result = await require('./agent').run({
       provider: model.provider,
       model: model.id,
       task,
@@ -445,7 +462,7 @@ ipcMain.handle('agent-run', async (_e, { task }) => {
     if (isAbort(err) || controller.signal.aborted) return { ok: false, cancelled: true };
     return { ok: false, error: describeError(err, model) };
   } finally {
-    input.releaseAll();
+    require('./input').releaseAll();
     if (stopKey) globalShortcut.unregister('Alt+Shift+X');
     agentRun = null;
     setAgentWindowMode(false);
@@ -480,6 +497,7 @@ ipcMain.handle('get-models', () => ({
   models: MODELS,
   local: local.describe(settings.load().localTier),
   tiers: local.TIERS,
+  usage: usage.all(),
 }));
 
 ipcMain.handle('local-prepare', async () => {

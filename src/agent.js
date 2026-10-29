@@ -2,9 +2,11 @@
 // until the task is done. Claude uses Anthropic's computer toolset; Gemini gets
 // a small set of functions with coordinates on a 0-999 grid. Every action goes
 // through input.js, and the loop stops the moment the abort signal fires.
+// Agent mode is loaded on first use, so these SDKs are already in memory by then.
 const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenAI, ApiError: GoogleApiError } = require('@google/genai');
 const input = require('./input');
+const usage = require('./usage');
 
 const MAX_STEPS = 40;
 const SETTLE_MS = 700; // let the UI react before the next screenshot
@@ -274,8 +276,13 @@ async function geminiCall(ai, req, signal) {
   // The free tier is often busy; a couple of quick retries usually get through.
   for (let attempt = 0; ; attempt++) {
     try {
+      usage.count(req.model);
       return await ai.models.generateContent(req);
     } catch (err) {
+      if (err instanceof GoogleApiError && err.status === 429 && /PerDay/i.test(err.message)) {
+        usage.hitDailyLimit(req.model);
+        throw err;
+      }
       const busy = err instanceof GoogleApiError && [429, 500, 503].includes(err.status);
       if (!busy || attempt >= 2) throw err;
       await sleep(1500 * (attempt + 1), signal);

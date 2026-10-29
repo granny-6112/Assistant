@@ -37,12 +37,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # release-notes.md holds a few short bullets for this version; Assistant
+        # shows them in Settings → Updates before you restart to install.
         run: |
           v=$(node -p "require('./package.json').version")
           files="dist/Assistant-Setup-$v.exe dist/Assistant-Setup-$v.exe.blockmap dist/latest.yml dist/Assistant-for-Claude.mcpb"
           if gh release view "v$v" >/dev/null 2>&1; then
             gh release upload "v$v" $files --clobber
-            gh release edit "v$v" --draft=false --latest
+            gh release edit "v$v" --draft=false --latest --notes-file release-notes.md
           else
-            gh release create "v$v" $files --target "$GITHUB_SHA" --title "Assistant $v" --generate-notes --latest
+            gh release create "v$v" $files --target "$GITHUB_SHA" --title "Assistant $v" --notes-file release-notes.md --latest
           fi

@@ -35,8 +35,79 @@
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
 
+  // Maths is pulled out before Markdown runs (so _ and * inside it survive),
+  // rendered with KaTeX, and put back after sanitising. Code is left alone.
+  const MATH_OPEN = '\uE000';
+  const MATH_CLOSE = '\uE001';
+  function extractMath(text) {
+    const math = [];
+    const keep = (tex, display) => `${MATH_OPEN}${math.push({ tex, display }) - 1}${MATH_CLOSE}`;
+    const parts = text.split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/);
+    for (let i = 0; i < parts.length; i += 2) {
+      parts[i] = parts[i]
+        .replace(/\$\$([\s\S]+?)\$\$/g, (_, t) => keep(t, true))
+        .replace(/\\\[([\s\S]+?)\\\]/g, (_, t) => keep(t, true))
+        .replace(/\\\(([\s\S]+?)\\\)/g, (_, t) => keep(t, false))
+        // $x$ only when it hugs its content, so "$5 and $10" stays money.
+        .replace(/(^|[^\\$\w])\$(?=\S)([^$\n]*?\S)\$(?![\w$])/g, (_, pre, t) => pre + keep(t, false));
+    }
+    return { src: parts.join(''), math };
+  }
+
+  // KaTeX is 270 KB, so it loads the first time an answer contains maths.
+  let katexLoading = null;
+  function loadKatex() {
+    katexLoading ||= new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = '../../node_modules/katex/dist/katex.min.css';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = '../../node_modules/katex/dist/katex.min.js';
+      js.onload = resolve;
+      js.onerror = reject;
+      document.head.appendChild(js);
+    });
+    return katexLoading;
+  }
+
+  function renderMath({ tex, display }) {
+    if (!window.katex) return `<span class="math-pending">${display ? '$$' : '$'}${DOMPurify.sanitize(tex)}${display ? '$$' : '$'}</span>`;
+    try {
+      return katex.renderToString(tex, { displayMode: display, throwOnError: false, output: 'htmlAndMathml' });
+    } catch {
+      return display ? `$$${tex}$$` : `$${tex}$`;
+    }
+  }
+
+  const rendered = new WeakMap(); // element → the text it last showed
   function renderMarkdown(el, text) {
-    el.innerHTML = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }));
+    const { src, math } = extractMath(text);
+    let html = DOMPurify.sanitize(marked.parse(src, { breaks: true, gfm: true }));
+    if (math.length && !window.katex) {
+      loadKatex().then(() => { if (el.isConnected && rendered.get(el) === text) renderMarkdown(el, text); }).catch(() => {});
+    }
+    rendered.set(el, text);
+    if (math.length) {
+      html = html.replace(new RegExp(`${MATH_OPEN}(\\d+)${MATH_CLOSE}`, 'g'), (_, i) => renderMath(math[Number(i)]));
+    }
+    el.innerHTML = html;
+    // Code blocks get a header with the language and a Copy button; wide tables scroll.
+    for (const pre of el.querySelectorAll('pre')) {
+      const code = pre.querySelector('code');
+      const lang = (code?.className.match(/language-([\w+#-]+)/) || [])[1] || 'code';
+      const head = document.createElement('div');
+      head.className = 'code-head';
+      head.innerHTML = '<span></span><button type="button" class="code-copy">Copy</button>';
+      head.firstChild.textContent = lang;
+      pre.prepend(head);
+    }
+    for (const table of el.querySelectorAll('table')) {
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      table.replaceWith(wrap);
+      wrap.appendChild(table);
+    }
   }
 
   let wasTyping = false;
@@ -54,7 +125,8 @@
   function syncPanel() {
     if (state.agentRunning && !state.agentConfirmId) { panel.hidden = true; return; }
     $('agent-confirm').hidden = !state.agentConfirmId;
-    const hasContent = Boolean(state.agentConfirmId) || messagesEl.children.length > 0 || !banner.hidden || state.settingsOpen || state.pickerOpen || Boolean(state.lastRecording);
+    $('setup').hidden = !state.setupOpen || state.settingsOpen;
+    const hasContent = state.setupOpen || Boolean(state.agentConfirmId) || messagesEl.children.length > 0 || !banner.hidden || state.settingsOpen || Boolean(state.lastRecording);
     if (hasContent && panel.hidden) {
       panel.hidden = false;
       panel.classList.add('entering');
@@ -63,7 +135,6 @@
       panel.hidden = true;
     }
     settingsForm.hidden = !state.settingsOpen;
-    $('model-picker').hidden = state.settingsOpen || !state.pickerOpen;
     messagesEl.hidden = state.settingsOpen;
     $('recording-chip').hidden = state.settingsOpen || !state.lastRecording;
   }
@@ -304,6 +375,14 @@
     msg.el.appendChild(bar);
   }
 
+  messagesEl.addEventListener('click', async (e) => {
+    const copy = e.target.closest('.code-copy');
+    if (!copy) return;
+    await navigator.clipboard.writeText(copy.closest('pre').querySelector('code')?.textContent || '');
+    copy.textContent = 'Copied';
+    setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+  });
+
   messagesEl.addEventListener('click', (e) => {
     const a = e.target.closest('a[href]');
     if (!a) return;
@@ -376,6 +455,9 @@
         if (result.truncated) addNote(msg, 'The answer hit the length limit and was cut off.');
         if (fellBack) addNote(msg, `Finished by ${result.servedBy} after the first model declined.`);
         if (result.busyFallback) addNote(msg, `Answered by ${result.busyFallback} because the model you picked was busy.`);
+        const u = result.usage;
+        if (u?.near) addNote(msg, `Heads up: ${u.used} of about ${u.limit} free ${u.name} requests used today. The allowance resets at ${u.resetsAt}.`);
+        if (u) { state.usage = { ...state.usage, [result.servedBy]: u }; renderPicker(); }
         addActions(msg);
       }
     } else if (result.cancelled) {
@@ -475,7 +557,7 @@
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      if (window.Voice?.active()) window.Voice.finish(); else submit();
     }
   });
   input.addEventListener('input', () => {
@@ -484,7 +566,9 @@
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && window.Voice?.active() && e.target !== input) { e.preventDefault(); window.Voice.finish(); return; }
     if (e.key !== 'Escape') return;
+    if (window.Voice?.active()) { window.Voice.cancel(); showBanner(''); return; }
     if (state.agentConfirmId) answerConfirm(false);
     else if (state.pickerOpen) setPickerOpen(false);
     else if (state.agentRunning) window.bar.agentStop();
@@ -663,19 +747,33 @@
 
   function renderUpdate(st, version) {
     if (version) state.version = version;
-    const v = state.version ? `You're on ${state.version}. ` : '';
-    const text = {
-      checking: `${v}Checking for updates…`,
-      none: `${v}This is the latest version.`,
-      downloading: `Downloading ${st.version}… ${Math.round((st.progress || 0) * 100)}%`,
-      ready: `Version ${st.version} is ready. It installs when Assistant restarts.`,
-      error: `${v}${st.message || 'Update check failed.'}`,
-    }[st?.state] || v;
-    $('update-status').textContent = text;
-    updateAction.hidden = !st || st.state === 'checking' || st.state === 'downloading';
-    updateAction.textContent = st?.state === 'ready' ? 'Restart now' : 'Check now';
-    if (st?.state === 'ready' && !banner.textContent) showBanner(`Assistant ${st.version} is ready. It installs next time Assistant restarts.`, 'info');
+    if (st) state.update = st;
+    st = state.update || {};
+    const available = st.state === 'downloading' || st.state === 'ready';
+    $('update-version').textContent = state.version ? `You're on version ${state.version}` : '';
+    $('update-status').textContent = {
+      checking: 'Checking for updates…',
+      none: 'This is the latest version.',
+      downloading: `Version ${st.version} is available. Downloading… ${Math.round((st.progress || 0) * 100)}%`,
+      ready: `Version ${st.version} is ready. Restart to install it.`,
+      error: st.message || 'Update check failed.',
+    }[st.state] || '';
+    $('updates-summary').textContent = available ? `${st.version} available` : (state.version ? `Version ${state.version}` : '');
+    updateAction.hidden = st.state === 'checking' || st.state === 'downloading';
+    updateAction.textContent = st.state === 'ready' ? 'Restart now' : 'Check now';
+    updateAction.classList.toggle('primary', st.state === 'ready');
+    const notes = available && st.notes ? DOMPurify.sanitize(st.notes) : '';
+    $('update-notes').innerHTML = notes ? `<p class="update-notes-title">What's new in ${st.version}</p>${notes}` : '';
+    $('update-notes').hidden = !notes;
+    $('update-callout').hidden = !available;
+    $('update-callout-text').textContent = st.state === 'ready' ? `Update ${st.version} is ready` : `Update ${st.version} available`;
   }
+
+  $('update-callout').addEventListener('click', () => {
+    const d = settingsForm.querySelector('details[data-section="updates"]');
+    d.open = true;
+    d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   updateAction.addEventListener('click', () => {
     if (updateAction.textContent === 'Restart now') window.bar.installUpdate();
@@ -726,6 +824,10 @@
     $('mp-name').textContent = name;
     $('mp-badge').textContent = badge;
     $('mp-badge').dataset.kind = badge.toLowerCase();
+    const u = state.usage?.[model.id];
+    if (model.provider === 'google' && u?.used) {
+      note += ` Used today: ${u.used} request${u.used === 1 ? '' : 's'}${u.limit ? ` of about ${u.limit} (the free limit you hit before)` : ''}. Resets at ${u.resetsAt}.`;
+    }
     $('mp-note').textContent = note.trim();
     $('mp-local').hidden = model.provider !== 'local';
     renderLocalStatus();
@@ -758,20 +860,34 @@
     if (state.models[Number(slider.value)]?.provider !== 'local') setPickerOpen(false);
   });
 
-  // The model picker only opens from the icon at the left of the bar.
+  // The model picker pops out of the model box in the bar, centred under it.
+  const pop = $('model-pop');
+  function placePicker() {
+    const chip = $('model-chip').getBoundingClientRect();
+    const rootBox = root.getBoundingClientRect();
+    const pad = 20;
+    const left = chip.left + chip.width / 2 - pop.offsetWidth / 2 - rootBox.left;
+    pop.style.marginLeft = `${Math.max(0, Math.min(left - pad, rootBox.width - pad * 2 - pop.offsetWidth))}px`;
+    pop.style.setProperty('--caret-x', `${chip.left + chip.width / 2 - rootBox.left - pad - parseFloat(pop.style.marginLeft)}px`);
+  }
   function setPickerOpen(open) {
     if (state.pickerOpen === open) return;
     state.pickerOpen = open;
-    $('model-toggle').classList.toggle('on', open);
-    $('model-toggle').setAttribute('aria-expanded', String(open));
-    syncPanel();
+    $('model-chip').classList.toggle('on', open);
+    $('model-chip').setAttribute('aria-expanded', String(open));
+    pop.hidden = !open;
+    if (open) {
+      placePicker();
+      pop.classList.add('entering');
+      requestAnimationFrame(() => requestAnimationFrame(() => pop.classList.remove('entering')));
+    }
   }
-  $('model-toggle').addEventListener('click', () => {
+  $('model-chip').addEventListener('click', () => {
     if (state.settingsOpen) closeSettings();
     setPickerOpen(!state.pickerOpen);
   });
   document.addEventListener('pointerdown', (e) => {
-    if (state.pickerOpen && !e.target.closest('#model-picker, #model-toggle')) setPickerOpen(false);
+    if (state.pickerOpen && !e.target.closest('#model-pop, #model-chip')) setPickerOpen(false);
   });
 
   $('mp-local-prepare').addEventListener('click', async () => {
@@ -789,6 +905,7 @@
   async function loadModels() {
     const r = await window.bar.getModels();
     state.models = r.models;
+    state.usage = r.usage || {};
     state.local = r.local;
     const autoOpt = $('local-tier').querySelector('option[value="auto"]');
     autoOpt.textContent = `Auto (${r.local.name} for your ${r.local.ramGB} GB RAM)`;
@@ -821,10 +938,102 @@
   $('recordings-folder').addEventListener('click', () => window.bar.openRecordingsFolder());
   $('quit').addEventListener('click', () => window.bar.quit());
 
-  window.bar.onOpenSettings(({ firstRun } = {}) => {
-    openSettings(firstRun ? 'keys' : null);
-    if (firstRun) showBanner('Welcome! Paste a free Google AI Studio key below to start, or close Settings and slide the model to Offline to use the on-device model with no key.', 'info');
-    setTimeout(() => $('key-google').focus(), 50);
+  // ---------- first-run setup ----------
+
+  window.bar.onFirstRun(() => {
+    state.setupOpen = true;
+    syncPanel();
+    $('setup-key').focus();
+  });
+  $('setup-open').addEventListener('click', () => window.bar.openExternal('https://aistudio.google.com/apikey'));
+  async function finishSetup(patch = {}) {
+    state.setupOpen = false;
+    state.settings = { ...state.settings, ...(await window.bar.saveSettings({ setupDone: true, ...patch })) };
+    renderPicker();
+    syncPanel();
+    input.focus();
+  }
+  $('setup-save').addEventListener('click', async () => {
+    const key = $('setup-key').value.trim();
+    if (!key) { $('setup-key').focus(); return; }
+    $('setup-save').disabled = true;
+    $('setup-status').className = '';
+    $('setup-status').textContent = 'Checking your key…';
+    const r = await window.bar.setApiKey('google', key);
+    $('setup-save').disabled = false;
+    if (!r.ok || r.check?.valid === false) {
+      $('setup-status').className = 'bad';
+      $('setup-status').textContent = r.error || r.check.message;
+      return;
+    }
+    $('setup-key').value = '';
+    $('setup-status').className = 'ok';
+    $('setup-status').textContent = r.check?.valid === null ? "Saved. Couldn't check it right now, but it should work." : 'Key works.';
+    $('setup-done').hidden = false;
+    $('setup-skip').hidden = true;
+    state.settings = await window.bar.getSettings();
+    if (findModelIndex('local') === currentModelIndex()) await window.bar.saveSettings({ modelId: 'gemini-3.8-flash' });
+  });
+  $('setup-key').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('setup-save').click(); } });
+  $('setup-finish').addEventListener('click', () => finishSetup());
+  $('setup-skip').addEventListener('click', () => finishSetup({ modelId: 'local' }));
+  $('setup-mic').addEventListener('click', async () => {
+    const status = $('setup-mic-status');
+    try {
+      await window.Voice.requestAccess();
+      status.className = 'ok';
+      status.textContent = 'Microphone allowed.';
+      $('setup-mic').hidden = true;
+      $('setup-mic-settings').hidden = true;
+    } catch (err) {
+      status.className = 'bad';
+      status.textContent = window.Voice.describeMicError(err);
+      $('setup-mic-settings').hidden = false;
+    }
+  });
+  $('setup-mic-settings').addEventListener('click', () => window.bar.openMicSettings());
+
+  // ---------- voice input ----------
+
+  const micBtn = $('mic');
+  async function startVoice() {
+    if (state.busy || window.Voice.active()) return;
+    if (!state.settings.keys?.google?.has) {
+      showBanner('Voice input uses your free Google Gemini key to turn speech into text. Add one in Settings → API keys.');
+      return;
+    }
+    showBanner('Listening… stops when you pause for 5 seconds, or press Enter.', 'info');
+    micBtn.classList.add('listening');
+    $('mic-time').textContent = '0:00';
+    let result;
+    try {
+      result = await window.Voice.start({ onTick: (s) => { $('mic-time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; } });
+    } catch (err) {
+      micBtn.classList.remove('listening');
+      showBanner(window.Voice.describeMicError(err));
+      return;
+    }
+    micBtn.classList.remove('listening');
+    if (!result) { showBanner(''); return; }
+    if (!result.spoke) { showBanner("Didn't hear anything. Check your mic and try again.", 'info'); return; }
+    micBtn.classList.add('transcribing');
+    showBanner('Turning your speech into text…', 'info');
+    const r = await window.bar.transcribe(result.wav);
+    micBtn.classList.remove('transcribing');
+    if (!r.ok) { showBanner(r.error); return; }
+    if (!r.text) { showBanner("Couldn't make out any words. Try again a little closer to the mic.", 'info'); return; }
+    showBanner('');
+    input.value = r.text;
+    submit();
+  }
+  micBtn.addEventListener('click', () => {
+    if (window.Voice.active()) window.Voice.cancel(); else startVoice();
+  });
+
+  function findModelIndex(id) { return state.models.findIndex((m) => m.id === id); }
+
+  window.bar.onOpenSettings(() => {
+    openSettings();
   });
 
   // ---------- reveal / conceal ----------

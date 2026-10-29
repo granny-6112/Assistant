@@ -1,6 +1,6 @@
 {
   "name": "assistant",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A screen assistant that hides at the top of your screen: Gemini, Claude or an offline Gemma model",
   "main": "src/main.js",
   "scripts": {
@@ -17,12 +17,13 @@
     "@google/genai": "^2.32.0",
     "dompurify": "^3.4.17",
     "electron-updater": "^6.8.11",
+    "katex": "^0.16.47",
     "marked": "^18.1.2"
   },
   "devDependencies": {
+    "@nut-tree-fork/libnut-linux": "2.7.5",
     "electron": "^45.1.0",
-    "electron-builder": "^26.18.0",
-    "@nut-tree-fork/libnut-linux": "2.7.5"
+    "electron-builder": "^26.18.0"
   },
   "productName": "Assistant",
   "build": {
@@ -87,8 +88,8 @@
   "optionalDependencies": {
     "@fugood/node-llama-win32-x64": "^1.7.15",
     "@fugood/node-llama-win32-x64-vulkan": "^1.7.15",
-    "uiohook-napi": "^1.5.5",
-    "@nut-tree-fork/libnut-win32": "2.7.5"
+    "@nut-tree-fork/libnut-win32": "2.7.5",
+    "uiohook-napi": "^1.5.5"
   },
   "repository": {
     "type": "git",

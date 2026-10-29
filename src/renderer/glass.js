@@ -197,12 +197,16 @@
     setLive(false);
   }
 
-  // Specular glow that follows the pointer.
+  // Specular glow that follows the pointer 1:1. The element's position is read
+  // once on entry (not per move), and the spot only gets a transform.
   for (const g of glasses) {
+    const glow = g.el.querySelector('.glass-glow');
+    if (!glow) continue;
+    let origin = null;
+    g.el.addEventListener('pointerenter', () => { origin = g.el.getBoundingClientRect(); });
     g.el.addEventListener('pointermove', (e) => {
-      const r = g.el.getBoundingClientRect();
-      g.el.style.setProperty('--mx', `${e.clientX - r.left}px`);
-      g.el.style.setProperty('--my', `${e.clientY - r.top}px`);
+      origin ||= g.el.getBoundingClientRect();
+      glow.style.transform = `translate3d(${e.clientX - origin.left}px, ${e.clientY - origin.top}px, 0)`;
     });
   }
 

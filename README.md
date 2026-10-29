@@ -18,6 +18,10 @@ Assistant saves each conversation as text on this PC (`%APPDATA%\Assistant\histo
 
 Needs [Node.js 20+](https://nodejs.org). `npm install`, then `npm start` to run it. `npm run dist` builds the installer into `dist\`. To publish an update: bump `version` in package.json, then `set GH_TOKEN=<token with Contents: Read and write>` and `npm run release`. That uploads the installer, its `.blockmap` and `latest.yml` to a new GitHub release, which is what installed copies look for.
 
+## Voice
+
+Click the mic on the left of the bar and speak. It stops by itself after 5 seconds of silence (or press Enter), turns your speech into text with your free Gemini key, and asks it. Esc or another click cancels.
+
 ## Models: the slider
 
 Click the model chip in the bar (it shows *Smart* by default) and drag the slider:
