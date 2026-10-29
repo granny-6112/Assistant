@@ -1,11 +1,13 @@
 # Builds the Windows installer and publishes it as a GitHub release, which is
-# where installed copies of Assistant look for updates. Runs when a version
-# tag (v0.2.0, v0.3.0, ...) is pushed; the tag must match package.json.
+# where installed copies of Assistant look for updates. Runs whenever
+# package.json changes on main, so bumping "version" is all a release takes;
+# electron-builder creates the v<version> tag and skips versions already released.
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [package.json]
   workflow_dispatch:
 
 permissions:
