@@ -196,6 +196,7 @@ button.mark:active { transform: scale(.94); }
   user-select: text;
 }
 #question::placeholder { color: var(--muted); }
+#question.live-transcript { color: var(--muted); }
 
 .divider { width: 1px; height: 22px; background: var(--faint); margin: 0 4px; }
 

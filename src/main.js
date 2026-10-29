@@ -342,11 +342,11 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
 
 ipcMain.handle('cancel', () => conversation.cancel());
 
-ipcMain.handle('transcribe', async (_e, wav) => {
+ipcMain.handle('transcribe', async (_e, wav, opts) => {
   const apiKey = settings.getApiKey('google');
   if (!apiKey) return { ok: false, error: 'Voice input uses your free Google Gemini key to turn speech into text. Add one in Settings → API keys.' };
   try {
-    return { ok: true, text: await transcribe(apiKey, Buffer.from(wav).toString('base64')) };
+    return { ok: true, text: await transcribe(apiKey, Buffer.from(wav).toString('base64'), { partial: Boolean(opts?.partial) }) };
   } catch (err) {
     return { ok: false, error: describeError(err, findModel('gemini-3.5-flash-lite')) };
   }

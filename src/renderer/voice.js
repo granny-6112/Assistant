@@ -138,6 +138,8 @@
       src.connect(node);
       node.connect(ctx.destination);
       rec = {
+        // Everything heard so far, for live previews while still listening.
+        snapshot: () => (spoke && chunks.length ? encodeWav(chunks, ctx.sampleRate) : null),
         finish: () => end(true),
         cancel: () => end(false),
         timer: setInterval(() => {
@@ -160,6 +162,7 @@
   window.Voice = {
     start,
     finish: () => rec?.finish(),
+    snapshot: () => rec?.snapshot() || null,
     cancel: () => rec?.cancel(),
     active: () => Boolean(rec),
     requestAccess,

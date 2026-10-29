@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('bar', {
   saveSettings: (patch) => ipcRenderer.invoke('save-settings', patch),
   setApiKey: (provider, key) => ipcRenderer.invoke('set-api-key', { provider, key }),
   getModels: () => ipcRenderer.invoke('get-models'),
-  transcribe: (wav) => ipcRenderer.invoke('transcribe', wav),
+  transcribe: (wav, opts) => ipcRenderer.invoke('transcribe', wav, opts),
   micStatus: () => ipcRenderer.invoke('mic-status'),
   openMicSettings: () => ipcRenderer.send('open-mic-settings'),
   localPrepare: () => ipcRenderer.invoke('local-prepare'),

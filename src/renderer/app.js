@@ -1050,6 +1050,7 @@
   // ---------- voice input ----------
 
   const micBtn = $('mic');
+  const defaultPlaceholder = input.placeholder;
   async function startVoice() {
     if (state.busy || window.Voice.active()) return;
     if (!state.settings.keys?.google?.has) {
@@ -1081,6 +1082,33 @@
     setListening(true);
     showBanner('Listening… click the mic or press Enter when you\'re done, or just pause for 5 seconds.', 'info');
     micBtn.classList.add('listening');
+    // Live preview: about every 1.2 s, everything said so far is transcribed
+    // again and shown in the box, so you can see you've been heard. One
+    // request at a time; a final pass on the whole recording follows.
+    input.value = '';
+    input.classList.add('live-transcript');
+    input.placeholder = 'Listening…';
+    let liveBusy = false;
+    let liveBytes = 0;
+    let liveOff = false;
+    const liveTimer = setInterval(async () => {
+      if (liveBusy || liveOff || !window.Voice.active()) return;
+      const wav = window.Voice.snapshot();
+      if (!wav || wav.byteLength - liveBytes < 16000 * 2 * 0.6) return; // wait for 0.6 s more audio
+      liveBusy = true;
+      liveBytes = wav.byteLength;
+      let r = null;
+      try { r = await window.bar.transcribe(wav, { partial: true }); } catch {}
+      liveBusy = false;
+      if (!r?.ok) liveOff = /limit|quota|429/i.test(r?.error || ''); // don't burn the daily quota on previews
+      else if (r.text && window.Voice.active()) input.value = r.text;
+    }, 1200);
+    function stopLive() {
+      clearInterval(liveTimer);
+      liveOff = true;
+      input.classList.remove('live-transcript');
+      input.placeholder = defaultPlaceholder;
+    }
     let result;
     try {
       result = await window.Voice.start({
@@ -1088,15 +1116,17 @@
         onLevel: (v) => micBtn.style.setProperty('--mic-level', v.toFixed(2)),
       });
     } catch (err) {
+      stopLive();
       micBtn.classList.remove('listening');
       setListening(false);
       const blocked = err?.name === 'NotAllowedError' || err?.name === 'SecurityError' || err?.name === 'NotReadableError';
       showBanner(window.Voice.describeMicError(err), 'error', blocked ? [{ label: 'Open Windows microphone settings', onClick: () => window.bar.openMicSettings() }] : []);
       return;
     }
+    stopLive();
     micBtn.classList.remove('listening');
     micBtn.style.setProperty('--mic-level', '0');
-    if (!result) { setListening(false); showBanner(''); return; }
+    if (!result) { setListening(false); input.value = ''; showBanner(''); return; }
     if (!result.spoke) {
       setListening(false);
       showBanner("Didn't hear anything. The ring around the mic should move when you talk; if it doesn't, pick the right microphone in Windows sound settings.", 'info');

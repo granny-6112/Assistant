@@ -193,11 +193,12 @@ async function streamGeminiResilient(args) {
 
 // Speech to text for the mic button, with Gemini (free key). Tries the light
 // model first and steps up if it is busy.
-async function transcribe(apiKey, wavBase64) {
+async function transcribe(apiKey, wavBase64, { partial = false } = {}) {
   if (!googleClients.has(apiKey)) googleClients.set(apiKey, new (GoogleGenAI())({ apiKey }));
   const ai = googleClients.get(apiKey);
   let lastErr;
-  for (const model of ['gemini-3.5-flash-lite', 'gemini-3.6-flash']) {
+  // Live previews use the fastest model only; the final pass can fall back.
+  for (const model of partial ? ['gemini-3.5-flash-lite'] : ['gemini-3.5-flash-lite', 'gemini-3.6-flash']) {
     try {
       usage.count(model);
       const res = await ai.models.generateContent({
