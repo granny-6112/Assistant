@@ -8,6 +8,8 @@ const settings = require('./settings');
 const { MODELS, PROVIDERS, findModel, Conversation, describeError, isAbort, verifyKey } = require('./providers');
 const local = require('./local');
 const updater = require('./updater');
+const agent = require('./agent');
+const input = require('./input');
 
 const WIN_WIDTH = 780;        // bar is 740 wide plus room for its shadow
 const COLLAPSED_HEIGHT = 96;
@@ -27,6 +29,7 @@ let edgeSince = 0;
 let outsideSince = 0;
 let contentHeight = COLLAPSED_HEIGHT;
 let ui = { busy: false, typing: false, settingsOpen: false, pinned: false, recording: false };
+let agentRun = null; // { controller, confirmations: Map } while agent mode is driving the PC
 
 const conversation = new Conversation();
 const recording = { file: null, stream: null, path: null, startedAt: 0, frames: [] };
@@ -152,11 +155,12 @@ function hideBar() {
 }
 
 function toggleBar() {
+  if (agentRun) return stopAgent();
   if (shown) hideBar(); else showBar({ focus: true });
 }
 
 function keepOpen() {
-  return ui.pinned || ui.busy || ui.settingsOpen || (ui.typing && win.isFocused());
+  return Boolean(agentRun) || ui.pinned || ui.busy || ui.settingsOpen || (ui.typing && win.isFocused());
 }
 
 let tickTimer = null;
@@ -331,6 +335,120 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
 });
 
 ipcMain.handle('cancel', () => conversation.cancel());
+
+// ---------- agent mode ----------
+
+// Screenshot of the primary display for agent mode, plus what's needed to map
+// the model's coordinates back to the screen. A zoom crops a region of the
+// full-resolution screen and returns it at a readable size.
+async function captureAgentShot({ region } = {}) {
+  const display = screen.getPrimaryDisplay();
+  const pw = display.size.width * display.scaleFactor;
+  const ph = display.size.height * display.scaleFactor;
+  if (region) {
+    const { x0, y0, x1, y1, from } = region;
+    const src = await screenSource(display, { width: Math.round(pw), height: Math.round(ph) });
+    const kx = pw / from.width;
+    const ky = ph / from.height;
+    const rect = {
+      x: Math.max(0, Math.round(Math.min(x0, x1) * kx)),
+      y: Math.max(0, Math.round(Math.min(y0, y1) * ky)),
+      width: Math.max(8, Math.round(Math.abs(x1 - x0) * kx)),
+      height: Math.max(8, Math.round(Math.abs(y1 - y0) * ky)),
+    };
+    let img = src.thumbnail.crop(rect);
+    const k = Math.min(1, 1280 / Math.max(rect.width, rect.height));
+    if (k < 1) img = img.resize({ width: Math.round(rect.width * k), height: Math.round(rect.height * k), quality: 'best' });
+    const data = img.toJPEG(85).toString('base64');
+    return { data, block: jpegBlock(data) };
+  }
+  // 1280px wide keeps text legible and coordinates accurate for both models.
+  const k = Math.min(1, 1280 / Math.max(pw, ph));
+  const src = await screenSource(display, { width: Math.round(pw * k), height: Math.round(ph * k) });
+  if (!src || src.thumbnail.isEmpty()) throw new Error('Could not capture the screen.');
+  const size = src.thumbnail.getSize();
+  const data = src.thumbnail.toJPEG(82).toString('base64');
+  return { data, width: size.width, height: size.height, block: jpegBlock(data), display: { bounds: display.bounds, scaleFactor: display.scaleFactor } };
+}
+
+function setAgentWindowMode(running) {
+  if (!win || win.isDestroyed()) return;
+  // While the agent works, the bar shows its status but lets every click
+  // through and never takes focus, so it can't get in the way of the task.
+  win.setIgnoreMouseEvents(running);
+  win.setFocusable(!running);
+  if (running) win.blur();
+}
+
+function stopAgent() {
+  if (agentRun) agentRun.controller.abort();
+}
+
+function agentConfirm(action) {
+  return new Promise((resolve) => {
+    if (!agentRun) return resolve(false);
+    const id = `c${Date.now()}`;
+    agentRun.confirmations.set(id, resolve);
+    // The user has to be able to click Allow, so the bar is interactive until they answer.
+    win.setIgnoreMouseEvents(false);
+    win.setFocusable(true);
+    send('agent-confirm', { id, action });
+    agentRun.controller.signal.addEventListener('abort', () => resolve(false), { once: true });
+  }).finally(() => { if (agentRun) setAgentWindowMode(true); });
+}
+
+ipcMain.on('agent-confirm-reply', (_e, { id, ok }) => {
+  const resolve = agentRun?.confirmations.get(id);
+  if (!resolve) return;
+  agentRun.confirmations.delete(id);
+  resolve(Boolean(ok));
+});
+
+ipcMain.handle('agent-stop', () => stopAgent());
+
+ipcMain.handle('agent-run', async (_e, { task }) => {
+  const s = settings.load();
+  if (!s.agentEnabled) return { ok: false, error: 'Turn on "Let Assistant control the mouse and keyboard" in Settings first.' };
+  if (agentRun) return { ok: false, error: 'Agent mode is already running.' };
+  const model = findModel(s.modelId);
+  if (model.provider === 'local') {
+    return { ok: false, error: 'Agent mode needs a Gemini or Claude model; the offline model is too small to control the PC reliably. Slide to a cloud model.' };
+  }
+  const apiKey = settings.getApiKey(model.provider);
+  if (!apiKey) return { ok: false, error: `${model.name} needs a ${PROVIDERS[model.provider].name} key. Add one in Settings.`, needsKey: true };
+
+  const controller = new AbortController();
+  agentRun = { controller, confirmations: new Map() };
+  const stopKey = globalShortcut.register('Alt+Shift+X', stopAgent);
+  await showBar({ display: screen.getPrimaryDisplay() });
+  setAgentWindowMode(true);
+  send('agent-state', { running: true, step: 0, text: 'Starting…' });
+  refreshTray();
+  try {
+    const result = await agent.run({
+      provider: model.provider,
+      model: model.id,
+      task,
+      apiKey,
+      effort: s.effort,
+      capture: captureAgentShot,
+      signal: controller.signal,
+      onStep: ({ step, text }) => send('agent-state', { running: true, step, text }),
+      confirm: agentConfirm,
+    });
+    return { ok: true, text: result.text, steps: result.steps, model: model.name };
+  } catch (err) {
+    if (isAbort(err) || controller.signal.aborted) return { ok: false, cancelled: true };
+    return { ok: false, error: describeError(err, model) };
+  } finally {
+    input.releaseAll();
+    if (stopKey) globalShortcut.unregister('Alt+Shift+X');
+    agentRun = null;
+    setAgentWindowMode(false);
+    send('agent-state', { running: false });
+    refreshTray();
+  }
+});
 ipcMain.handle('new-chat', () => conversation.reset());
 
 // ---------- IPC: models & offline model ----------
@@ -469,6 +587,7 @@ function createTray() {
 function refreshTray() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
+    ...(agentRun ? [{ label: 'Stop the agent\tAlt+Shift+X', click: stopAgent }, { type: 'separator' }] : []),
     { label: 'Show bar\tAlt+Shift+C', click: () => showBar({ focus: true }) },
     { label: ui.recording ? 'Stop recording\tAlt+Shift+R' : 'Start recording\tAlt+Shift+R', click: () => send('toggle-recording') },
     { label: 'Open recordings folder', click: () => shell.openPath(recordingsDir()) },

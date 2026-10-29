@@ -19,6 +19,7 @@ const DEFAULTS = {
   accentColor: '#d97757',   // drives every coloured element (buttons, slider, dots, links)
   launchAtLogin: false,
   copilotKey: true,         // the laptop Copilot key toggles the bar
+  agentEnabled: false,      // agent mode may move the mouse and type (opt-in)
 };
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');

@@ -16,6 +16,9 @@
     busy: false,
     pinned: false,
     settingsOpen: false,
+    agentMode: false,
+    agentRunning: false,
+    agentConfirmId: null,
     includeScreen: true,
     attachRecording: false,
     lastRecording: null,
@@ -49,7 +52,9 @@
   }
 
   function syncPanel() {
-    const hasContent = messagesEl.children.length > 0 || !banner.hidden || state.settingsOpen || state.pickerOpen || Boolean(state.lastRecording);
+    if (state.agentRunning && !state.agentConfirmId) { panel.hidden = true; return; }
+    $('agent-confirm').hidden = !state.agentConfirmId;
+    const hasContent = Boolean(state.agentConfirmId) || messagesEl.children.length > 0 || !banner.hidden || state.settingsOpen || state.pickerOpen || Boolean(state.lastRecording);
     if (hasContent && panel.hidden) {
       panel.hidden = false;
       panel.classList.add('entering');
@@ -110,7 +115,10 @@
     if (heightQueued) return;
     heightQueued = requestAnimationFrame(() => {
       heightQueued = 0;
-      const h = Math.ceil(root.getBoundingClientRect().height);
+      // While an answer is being revealed the content grows a little every
+      // frame; grow the window in 48px steps so it isn't resized 60 times a second.
+      let h = Math.ceil(root.getBoundingClientRect().height);
+      if (h > sentHeight && revealing > 0) h = Math.ceil(h / 48) * 48;
       if (h !== sentHeight) { sentHeight = h; window.bar.contentHeight(h); }
     });
   }).observe(root);
@@ -137,13 +145,82 @@
   function addAssistantMessage() {
     const el = document.createElement('div');
     el.className = 'msg assistant pending';
+    const thinking = document.createElement('div');
+    thinking.className = 'thinking';
+    thinking.setAttribute('aria-label', 'Thinking');
+    thinking.append(...[0, 1, 2].map(() => document.createElement('span')));
+    const clip = document.createElement('div');
+    clip.className = 'reveal';
     const body = document.createElement('div');
     body.className = 'md';
-    el.appendChild(body);
+    clip.appendChild(body);
+    el.append(thinking, clip);
     messagesEl.appendChild(el);
     syncPanel();
     messagesEl.scrollTop = messagesEl.scrollHeight;
-    return { el, body, text: '' };
+    const msg = { el, body, clip, text: '' };
+    msg.reveal = createReveal(msg);
+    return msg;
+  }
+
+  // Answers are rendered as they stream, but shown through a clip whose bottom
+  // edge glides down at reading pace, so lines appear one after another instead
+  // of in jumps. It speeds up when it falls behind, so it never lags far.
+  let revealing = 0;
+  function createReveal(msg) {
+    let shown = 0;
+    let raf = 0;
+    let last = 0;
+    let finished = false;
+    let started = false;
+    const LINE_SPEED = 260; // px per second, about 12 lines
+
+    function settle() {
+      msg.clip.style.height = '';
+      msg.clip.classList.remove('revealing');
+      if (started) { started = false; revealing--; }
+    }
+
+    function frame(t) {
+      const target = msg.body.offsetHeight;
+      const dt = last ? Math.min(64, t - last) : 16;
+      last = t;
+      const gap = target - shown;
+      if (gap <= 0.5) {
+        shown = target;
+        raf = 0;
+        last = 0;
+        if (finished) settle(); else msg.clip.style.height = `${shown}px`;
+        return;
+      }
+      const stick = nearBottom();
+      shown = Math.min(target, shown + ((LINE_SPEED + gap * 2.5) * dt) / 1000);
+      msg.clip.style.height = `${shown}px`;
+      if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
+      raf = requestAnimationFrame(frame);
+    }
+
+    return {
+      kick() {
+        if (!started) { started = true; revealing++; msg.clip.classList.add('revealing'); msg.clip.style.height = '0px'; }
+        if (!raf) raf = requestAnimationFrame(frame);
+      },
+      finish() {
+        finished = true;
+        if (!started) return;
+        if (!raf) raf = requestAnimationFrame(frame);
+      },
+      skip() {
+        finished = true;
+        cancelAnimationFrame(raf);
+        raf = 0;
+        settle();
+      },
+    };
+  }
+
+  function stopThinking(msg) {
+    msg.el.classList.remove('pending');
   }
 
   function addNote(msg, text) {
@@ -194,9 +271,9 @@
     requestAnimationFrame(() => {
       if (!active) return;
       active.renderQueued = false;
-      const stick = nearBottom();
+      stopThinking(active.msg);
       renderMarkdown(active.msg.body, active.msg.text);
-      if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
+      active.msg.reveal.kick();
     });
   });
 
@@ -226,7 +303,8 @@
     const fellBack = active.fellBack;
     active = null;
 
-    msg.el.classList.remove('pending');
+    stopThinking(msg);
+    if (!result.ok || result.refused) msg.reveal.skip();
     if (result.ok) {
       if (result.refused) {
         msg.text = '';
@@ -234,6 +312,7 @@
         msg.el.classList.add('error');
       } else {
         renderMarkdown(msg.body, msg.text || '(no answer)');
+        msg.reveal.finish();
         if (result.truncated) addNote(msg, 'The answer hit the length limit and was cut off.');
         if (fellBack) addNote(msg, `Finished by ${result.servedBy} after the first model declined.`);
         if (result.busyFallback) addNote(msg, `Answered by ${result.busyFallback} because the model you picked was busy.`);
@@ -251,17 +330,92 @@
     state.busy = false;
     root.classList.remove('busy');
     reportUi();
+    if (!revealing) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // ---------- agent mode ----------
+
+  function setAgentMode(on) {
+    state.agentMode = on;
+    $('agent-mode').classList.toggle('on', on);
+    root.classList.toggle('agent-mode', on);
+    input.placeholder = on ? 'Tell Assistant what to do on your PC…' : 'Ask about your screen…';
+  }
+  $('agent-mode').addEventListener('click', () => { setAgentMode(!state.agentMode); input.focus(); });
+
+  window.bar.onAgentState(({ running, step, text }) => {
+    state.agentRunning = running;
+    root.classList.toggle('agent-running', running);
+    $('agent-status').hidden = !running;
+    if (running) $('agent-status-text').textContent = step ? `Step ${step} · ${text}` : text;
+    if (!running) state.agentConfirmId = null;
+    syncPanel();
+  });
+
+  window.bar.onAgentConfirm(({ id, action }) => {
+    state.agentConfirmId = id;
+    $('agent-confirm-action').textContent = action;
+    syncPanel();
+  });
+  function answerConfirm(ok) {
+    if (!state.agentConfirmId) return;
+    window.bar.agentConfirmReply(state.agentConfirmId, ok);
+    state.agentConfirmId = null;
+    syncPanel();
+  }
+  $('agent-allow').addEventListener('click', () => answerConfirm(true));
+  $('agent-deny').addEventListener('click', () => answerConfirm(false));
+
+  async function runAgent(task) {
+    if (state.busy) return;
+    const text = task.trim();
+    if (!text) return;
+    if (state.settingsOpen) closeSettings();
+    input.value = '';
+    showBanner('');
+    state.busy = true;
+    root.classList.add('busy');
+    reportUi();
+
+    const userEl = addUserMessage(text);
+    userEl.querySelector('.attach').textContent = 'agent mode';
+    const msg = addAssistantMessage();
+    const result = await window.bar.agentRun(text);
+    stopThinking(msg);
+    msg.reveal.skip();
+    if (result.ok) {
+      msg.text = result.text;
+      renderMarkdown(msg.body, result.text);
+      addNote(msg, `Agent mode · ${result.steps} step${result.steps === 1 ? '' : 's'} with ${result.model}`);
+      addActions(msg);
+    } else if (result.cancelled) {
+      msg.body.textContent = 'Stopped. Anything already done stays done.';
+    } else {
+      msg.el.classList.add('error');
+      msg.body.textContent = result.error;
+      if (result.needsKey) openSettings();
+    }
+    state.busy = false;
+    root.classList.remove('busy');
+    reportUi();
+    syncPanel();
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function submit() {
+    if (state.agentMode) runAgent(input.value); else ask(input.value);
+  }
+
   $('send').addEventListener('click', () => {
-    if (state.busy) window.bar.cancel(); else ask(input.value);
+    if (state.agentRunning) window.bar.agentStop();
+    else if (state.busy) window.bar.cancel();
+    else submit();
   });
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      ask(input.value);
+      submit();
     }
   });
   input.addEventListener('input', () => {
@@ -271,7 +425,9 @@
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (state.busy) window.bar.cancel();
+    if (state.agentConfirmId) answerConfirm(false);
+    else if (state.agentRunning) window.bar.agentStop();
+    else if (state.busy) window.bar.cancel();
     else if (state.settingsOpen) closeSettings();
     else window.bar.hide();
   });
@@ -365,6 +521,8 @@
       if (el.type === 'checkbox') el.checked = Boolean(v); else el.value = String(v);
     }
     setIncludeScreen(s.includeScreen);
+    $('agent-mode').hidden = !s.agentEnabled;
+    if (!s.agentEnabled && state.agentMode) setAgentMode(false);
     applyTint();
     applyAccent(s.accentColor);
     renderUpdate(s.update, s.version);
@@ -396,6 +554,10 @@
     state.settings = await window.bar.saveSettings({ [el.dataset.setting]: value });
     applyTint();
     if (el.dataset.setting === 'liveGlass' && value === 'off') window.Glass.stop();
+    if (el.dataset.setting === 'agentEnabled') {
+      $('agent-mode').hidden = !value;
+      if (!value) setAgentMode(false);
+    }
   });
 
   for (const btn of settingsForm.querySelectorAll('.save-key')) {

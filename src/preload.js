@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('bar', {
   setApiKey: (provider, key) => ipcRenderer.invoke('set-api-key', { provider, key }),
   getModels: () => ipcRenderer.invoke('get-models'),
   localPrepare: () => ipcRenderer.invoke('local-prepare'),
+  agentRun: (task) => ipcRenderer.invoke('agent-run', { task }),
+  agentStop: () => ipcRenderer.invoke('agent-stop'),
+  agentConfirmReply: (id, ok) => ipcRenderer.send('agent-confirm-reply', { id, ok }),
   checkUpdates: () => ipcRenderer.invoke('check-updates'),
   installUpdate: () => ipcRenderer.send('install-update'),
   uiState: (state) => ipcRenderer.send('ui-state', state),
@@ -41,4 +44,6 @@ contextBridge.exposeInMainWorld('bar', {
   onFallback: on('ai-fallback'),
   onLocalStatus: on('local-status'),
   onUpdateStatus: on('update-status'),
+  onAgentState: on('agent-state'),
+  onAgentConfirm: on('agent-confirm'),
 });

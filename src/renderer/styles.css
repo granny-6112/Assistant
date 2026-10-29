@@ -321,15 +321,27 @@ svg { stroke-linecap: round; stroke-linejoin: round; }
 .msg.assistant { padding: 0 4px; }
 .msg.assistant.error { color: var(--danger); }
 .msg.assistant .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
-.msg.assistant.pending::after {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 4px;
+.msg.assistant .thinking { display: none; gap: 5px; align-items: center; height: 22px; padding-left: 2px; }
+.msg.assistant.pending .thinking { display: flex; }
+.thinking span {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent);
-  animation: pulse 1s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--accent-glow);
+  animation: bob 1.1s ease-in-out infinite;
+}
+.thinking span:nth-child(2) { animation-delay: .15s; }
+.thinking span:nth-child(3) { animation-delay: .3s; }
+@keyframes bob {
+  0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+  30% { transform: translateY(-5px); opacity: 1; }
+}
+
+/* Line-by-line reveal: the clip's height is driven from app.js. */
+.reveal.revealing {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent);
 }
 .msg-actions { display: flex; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity .2s; }
 .msg.assistant:hover .msg-actions { opacity: 1; }
@@ -527,3 +539,40 @@ kbd {
 .swatch.on { box-shadow: inset 0 1px 1px rgba(255, 255, 255, .4), 0 0 0 2px var(--tint-flat), 0 0 0 4px var(--c); }
 .swatch-custom { position: relative; overflow: hidden; background: conic-gradient(#ff5f5f, #ffd25f, #5fff8a, #5fd2ff, #8a5fff, #ff5fd2, #ff5f5f); }
 .swatch-custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+
+/* Agent mode */
+.agent-status {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.agent-status #agent-status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.agent-pulse {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-glow);
+  animation: agent-pulse 1.4s ease-out infinite;
+}
+@keyframes agent-pulse { 70% { box-shadow: 0 0 0 9px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+#root.agent-running #question { display: none; }
+#root.agent-running .bar-row > :not(.mark):not(.agent-status):not(#send) { display: none; }
+#root.agent-running .bar { box-shadow: 0 0 0 2px var(--accent), 0 18px 40px -12px rgba(0, 0, 0, .45); }
+#root.agent-mode .mark { box-shadow: 0 0 0 2px var(--accent-soft), 0 2px 6px var(--accent-glow); }
+
+.agent-confirm {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--field);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.agent-confirm-title { margin: 0; font-size: 12px; color: var(--muted); }
+.agent-confirm-action { margin: 4px 0 10px; font-weight: 600; }
+.agent-confirm-row { display: flex; justify-content: flex-end; gap: 8px; }

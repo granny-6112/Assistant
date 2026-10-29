@@ -1,6 +1,6 @@
 {
   "name": "assistant",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A screen assistant that hides at the top of your screen: Gemini, Claude or an offline Gemma model",
   "main": "src/main.js",
   "scripts": {
@@ -21,7 +21,8 @@
   },
   "devDependencies": {
     "electron": "^45.1.0",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "@nut-tree-fork/libnut-linux": "2.7.5"
   },
   "productName": "Assistant",
   "build": {
@@ -38,7 +39,9 @@
       "!node_modules/@fugood/node-llama-linux*/**",
       "!node_modules/@fugood/node-llama-wasm/**",
       "!node_modules/@fugood/llama.node/src/**",
-      "!node_modules/@fugood/llama.node/**/*.ts"
+      "!node_modules/@fugood/llama.node/**/*.ts",
+      "!node_modules/@nut-tree-fork/libnut-win32/build/Release/*.{lib,exp}",
+      "!node_modules/@nut-tree-fork/libnut-linux/**"
     ],
     "win": {
       "icon": "assets/icon.png",
@@ -77,12 +80,16 @@
         "private": true,
         "releaseType": "release"
       }
+    ],
+    "asarUnpack": [
+      "node_modules/@nut-tree-fork/libnut-win32/build/Release/**"
     ]
   },
   "optionalDependencies": {
     "@fugood/node-llama-win32-x64": "^1.7.15",
     "@fugood/node-llama-win32-x64-vulkan": "^1.7.15",
-    "uiohook-napi": "^1.5.5"
+    "uiohook-napi": "^1.5.5",
+    "@nut-tree-fork/libnut-win32": "2.7.5"
   },
   "repository": {
     "type": "git",

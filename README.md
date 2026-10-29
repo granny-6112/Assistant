@@ -54,6 +54,16 @@ Get a free key at [aistudio.google.com/apikey](https://aistudio.google.com/apike
 
 The Copilot key sends Win+Shift+F23, and Assistant listens for it. Windows will *also* open Copilot unless you change **Settings → Personalization → Text input → Customize Copilot key on keyboard** to **Search** (or uninstall the Copilot app).
 
+## Agent mode (Assistant does things for you)
+
+Turn on **Settings → Agent mode**, then press the cursor button in the bar and type a task, e.g. "open Spotify and play my liked songs". Assistant takes a screenshot, moves the mouse and types, checks the result, and repeats until it's done (at most 40 steps).
+
+- **Stop it any time** with **Alt+Shift+X** (or Alt+Shift+C, the Copilot key, or the tray menu). While it runs the bar shows each step and lets clicks pass through.
+- It asks you before sending, posting, buying, deleting or changing settings. That check relies on the model asking, so watch what it does.
+- It never types passwords; it stops and hands that part back to you.
+- It works on your main display only, and needs Gemini or Claude. The offline model can't do it.
+- Honest expectations: Claude is the most reliable. Free Gemini handles simple tasks (open an app, search, fill a short form) but misclicks more, and busy free-tier servers can stall it.
+
 ## Energy use
 
 Assistant is built to sit in the background:
