@@ -71,6 +71,10 @@
           <svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
       </div>
+      <div class="drop-zone" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Drop files</span>
+      </div>
     </section>
 
     <section class="glass popover" id="model-pop" data-lens="lens-pop" hidden>
@@ -146,6 +150,11 @@
           </div>
         </div>
 
+        <div id="file-chips" class="chips" hidden></div>
+        <div id="video-chip" class="chips" hidden>
+          <button id="summarise-video" class="chip"><span class="chip-dot"></span><span id="video-label">Summarise this video</span></button>
+        </div>
+
         <div id="recording-chip" class="chips" hidden>
           <button id="attach-recording" class="chip">
             <span class="chip-dot"></span><span id="recording-label">Last recording</span>
@@ -164,22 +173,32 @@
           <details class="section" data-section="keys">
             <summary><span>API keys</span><small id="keys-summary" class="hint"></small></summary>
             <div class="section-body">
-          <label class="field">
+          <div class="field">
             <span>Google AI Studio key (free) · <a href="https://aistudio.google.com/apikey" class="ext">get one</a></span>
-            <div class="key-row">
+            <div class="key-saved" id="key-saved-google" hidden>
+              <span class="key-ok">✓</span><span id="key-saved-text-google">Key in use</span>
+              <button type="button" class="pill-btn ghost key-replace" data-provider="google">Use another key</button>
+              <button type="button" class="pill-btn ghost danger key-remove" data-provider="google">Remove</button>
+            </div>
+            <div class="key-row" id="key-row-google">
               <input id="key-google" type="password" placeholder="Paste your Google AI Studio key" autocomplete="off" spellcheck="false">
               <button type="button" class="pill-btn save-key" data-provider="google">Save</button>
             </div>
             <small id="key-status-google"></small>
-          </label>
-          <label class="field">
+          </div>
+          <div class="field">
             <span>Anthropic API key (optional, paid) · <a href="https://console.anthropic.com/settings/keys" class="ext">get one</a></span>
-            <div class="key-row">
+            <div class="key-saved" id="key-saved-anthropic" hidden>
+              <span class="key-ok">✓</span><span id="key-saved-text-anthropic">Key in use</span>
+              <button type="button" class="pill-btn ghost key-replace" data-provider="anthropic">Use another key</button>
+              <button type="button" class="pill-btn ghost danger key-remove" data-provider="anthropic">Remove</button>
+            </div>
+            <div class="key-row" id="key-row-anthropic">
               <input id="key-anthropic" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
               <button type="button" class="pill-btn save-key" data-provider="anthropic">Save</button>
             </div>
             <small id="key-status-anthropic"></small>
-          </label>
+          </div>
             </div>
           </details>
 
@@ -286,6 +305,9 @@
             <div class="field"><span>Test the microphone</span>
               <div class="mic-test"><button type="button" id="mic-test" class="pill-btn ghost">Test</button><div class="meter"><i id="mic-test-level"></i></div></div>
             </div>
+            <div class="field"><span>Push-to-talk key (hold to talk, let go to send)</span>
+              <div class="mic-test"><b id="ptt-key" class="ptt-key">Right Ctrl</b><button type="button" id="ptt-change" class="pill-btn ghost">Change</button><button type="button" id="ptt-off" class="pill-btn ghost">Turn off</button></div>
+            </div>
             <label class="field"><span>Reveal when the mouse touches</span>
               <select data-setting="revealZone">
                 <option value="full">Anywhere on the top edge</option>
@@ -313,8 +335,8 @@
           <div class="settings-actions">
             <button type="button" id="recordings-folder" class="pill-btn ghost">Recordings folder</button>
             <button type="button" id="clear-history" class="pill-btn ghost">Clear saved conversations</button>
-            <button type="button" id="quit" class="pill-btn ghost danger">Quit</button>
-            <button type="button" id="close-settings" class="pill-btn primary">Done</button>
+            <span id="saved-tick" class="saved-tick" aria-live="polite"></span>
+            <button type="button" id="quit" class="pill-btn ghost danger" title="Close Assistant completely, stopping anything it's doing">Force stop</button>
           </div>
         </form>
       </div>

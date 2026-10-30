@@ -21,7 +21,10 @@ const DEFAULTS = {
   accentColor: '#d97757',   // drives every coloured element (buttons, slider, dots, links)
   launchAtLogin: false,
   copilotKey: true,         // the laptop Copilot key toggles the bar
-  micDeviceId: '',          // microphone for voice input; '' is the Windows default
+  keyInvalid: {},           // provider -> true once the saved key was rejected (expired or revoked)
+  micDeviceId: '',
+  pttKey: 3613,             // push-to-talk: hold this key (uiohook keycode; 3613 = Right Ctrl, 0 = off)
+  pttKeyName: 'Right Ctrl',          // microphone for voice input; '' is the Windows default
   micAsked: false,          // the user has been asked once whether Assistant may use the mic
   setupDone: false,         // the first-run key walkthrough was finished or skipped
   saveHistory: true,        // keep conversations (text only) for the Claude extension
@@ -62,7 +65,24 @@ function envKey(provider) {
   return '';
 }
 
+// Keys are encrypted with Windows' own data protection (DPAPI, tied to your
+// Windows account) via safeStorage. A plain-text key file is only written
+// when encryption isn't available; if one is left over and encryption works,
+// it is encrypted and the plain file deleted the next time the key is read.
+function migratePlainKey(provider) {
+  const plain = plainKeyFile(provider);
+  if (!fs.existsSync(plain) || !safeStorage.isEncryptionAvailable()) return;
+  try {
+    const key = fs.readFileSync(plain, 'utf8').trim();
+    if (key && !fs.existsSync(keyFile(provider))) fs.writeFileSync(keyFile(provider), safeStorage.encryptString(key));
+    fs.rmSync(plain, { force: true });
+  } catch {
+    // leave it; it still works and will be retried
+  }
+}
+
 function getApiKey(provider) {
+  migratePlainKey(provider);
   try {
     const buf = fs.readFileSync(keyFile(provider));
     if (safeStorage.isEncryptionAvailable()) return safeStorage.decryptString(buf);

@@ -13,6 +13,8 @@
   const OVER_BACKGROUND = 3;
 
   let rec = null;
+  let opening = false;     // waiting for the microphone to open
+  let finishEarly = false; // finish() arrived while it was opening (a quick push-to-talk)
 
   function encodeWav(chunks, inRate) {
     // Downsample by averaging, then write 16-bit PCM.
@@ -100,9 +102,16 @@
 
   // Resolves with { wav, spoke } when recording ends: silence, finish() or the
   // time limit. cancel() resolves with null.
-  async function start({ onTick, onLevel, deviceId } = {}) {
-    if (rec) return null;
-    const stream = await openMic(deviceId);
+  async function start({ onTick, onLevel, deviceId, hold = false } = {}) {
+    if (rec || opening) return null;
+    opening = true;
+    finishEarly = false;
+    let stream;
+    try {
+      stream = await openMic(deviceId);
+    } finally {
+      opening = false;
+    }
     const ctx = new AudioContext();
     if (ctx.state === 'suspended') await ctx.resume();
     const src = ctx.createMediaStreamSource(stream);
@@ -146,10 +155,12 @@
           const now = performance.now();
           onTick?.(Math.floor((now - began) / 1000));
           if (now - began > MAX_MS) end(true);
+          else if (hold) return; // push-to-talk ends when the key is let go
           else if (spoke && now - lastVoice > SILENCE_MS) end(true);
           else if (!spoke && now - began > NO_SPEECH_MS) end(true);
         }, 200),
       };
+      if (finishEarly) setTimeout(() => rec?.finish(), 300); // keep a little audio
     });
   }
 
@@ -161,10 +172,10 @@
 
   window.Voice = {
     start,
-    finish: () => rec?.finish(),
+    finish: () => { if (rec) rec.finish(); else if (opening) finishEarly = true; },
     snapshot: () => rec?.snapshot() || null,
     cancel: () => rec?.cancel(),
-    active: () => Boolean(rec),
+    active: () => Boolean(rec) || opening,
     requestAccess,
     listMics,
     test,

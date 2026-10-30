@@ -47,6 +47,41 @@ function findModel(id) {
   return MODELS.find((m) => m.id === id) || MODELS.find((m) => m.id === DEFAULT_MODEL);
 }
 
+// ---------- attachments ----------
+
+// Questions can carry more than text and screenshots: files dropped on the
+// bar ('file' blocks with base64 data, or their text) and a YouTube link
+// ('video_url'). Each model gets what it can take; anything it can't read
+// becomes a short note so the conversation still makes sense.
+const CLAUDE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+function forClaude(blocks) {
+  return blocks.map((b) => {
+    if (b.type === 'file') {
+      if (b.mime === 'application/pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b.data }, title: b.name };
+      if (CLAUDE_IMAGE_TYPES.has(b.mime)) return { type: 'image', source: { type: 'base64', media_type: b.mime, data: b.data } };
+      return { type: 'text', text: `[${b.name}: Claude can't open this kind of file. Gemini can.]` };
+    }
+    if (b.type === 'video_url') return { type: 'text', text: `[YouTube video: ${b.url}]` };
+    return b;
+  });
+}
+
+function forLocal(blocks) {
+  return blocks.map((b) => {
+    if (b.type === 'file') {
+      if (b.mime.startsWith('image/')) return { type: 'image', source: { type: 'base64', media_type: b.mime, data: b.data } };
+      if (b.text) return { type: 'text', text: `File ${b.name}:\n${b.text}` };
+      return { type: 'text', text: `[${b.name}: the offline model can't open this kind of file.]` };
+    }
+    if (b.type === 'video_url') return { type: 'text', text: `[YouTube video: ${b.url}]` };
+    return b;
+  });
+}
+
+const adaptMessages = (messages, fn) => messages.map((m) => ({ ...m, content: fn(m.content) }));
+const hasVideo = (messages) => messages.some((m) => m.content.some((b) => b.type === 'video_url'));
+
 // ---------- Claude ----------
 
 // Models that accept server-side refusal fallbacks with fallbacks: "default".
@@ -94,9 +129,12 @@ const googleClients = new Map();
 function toGeminiContents(messages) {
   return messages.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
-    parts: m.content.map((b) => (b.type === 'image'
-      ? { inlineData: { mimeType: b.source.media_type, data: b.source.data } }
-      : { text: b.text })),
+    parts: m.content.map((b) => {
+      if (b.type === 'image') return { inlineData: { mimeType: b.source.media_type, data: b.source.data } };
+      if (b.type === 'file') return { inlineData: { mimeType: b.mime, data: b.data } };
+      if (b.type === 'video_url') return { fileData: { fileUri: b.url } };
+      return { text: b.text };
+    }),
   }));
 }
 
@@ -109,7 +147,13 @@ async function streamGemini({ apiKey, model, messages, signal, onText }) {
   const stream = await ai.models.generateContentStream({
     model,
     contents: toGeminiContents(messages),
-    config: { systemInstruction: SYSTEM_PROMPT, maxOutputTokens: 16000, abortSignal: signal },
+    config: {
+      systemInstruction: SYSTEM_PROMPT,
+      maxOutputTokens: 16000,
+      abortSignal: signal,
+      // Low resolution keeps a long video within the free tier's limits.
+      ...(hasVideo(messages) ? { mediaResolution: 'MEDIA_RESOLUTION_LOW' } : {}),
+    },
   });
   let text = '';
   let finishReason = null;
@@ -252,9 +296,9 @@ class Conversation {
     const args = { apiKey, model: model.id, effort, messages: [...this.history, userTurn], signal: controller.signal, onText, onFallback, onBusy };
     try {
       let result;
-      if (model.provider === 'anthropic') result = await streamClaude(args);
+      if (model.provider === 'anthropic') result = await streamClaude({ ...args, messages: adaptMessages(args.messages, forClaude) });
       else if (model.provider === 'google') result = await streamGeminiResilient(args);
-      else result = await local.streamLocal({ ...args, tierSetting: localTier, systemPrompt: SYSTEM_PROMPT });
+      else result = await local.streamLocal({ ...args, messages: adaptMessages(args.messages, forLocal), tierSetting: localTier, systemPrompt: SYSTEM_PROMPT });
       if (!result.refused) {
         // Append only complete answers, so a cancelled or failed turn leaves no trace.
         this.history.push(userTurn, { role: 'assistant', content: [{ type: 'text', text: result.text || '(no answer)' }] });

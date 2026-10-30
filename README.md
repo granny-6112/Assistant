@@ -80,3 +80,14 @@ Assistant is built to sit in the background:
 - Needs Windows 10 version 2004 or later, so the bar can hide itself from screen capture.
 - The bar never appears in screenshots or recordings, including ones from other tools.
 - Built and tested on Linux with mocked screens. Gemini, Claude and the UI were exercised; the offline model download and llama.cpp run have not been run on a real Windows PC yet.
+
+## Push-to-talk, files and videos
+
+- **Push-to-talk:** hold Right Ctrl anywhere (change it in Settings → General), speak, let go to send.
+- **Offline speech:** with the Offline model selected, or without a Gemini key, speech is turned into text on your PC by Whisper (small, about 190 MB, downloaded once when you agree).
+- **Video summaries:** with a YouTube video open in your browser, click "Summarise …", say or type "summarise this video", or press Alt+Shift+Y. Assistant reads the link from the browser's address bar (or your clipboard) and Gemini watches the video, so it needs your free Gemini key.
+- **Files:** drag files onto the bar, then ask about them (Enter on its own summarises). PDFs and images go to Gemini or Claude as they are; Word, text and code are read as text so every model can use them; audio and video need Gemini. Up to 15 MB per file, 18 MB per question.
+
+## API keys
+
+Keys are encrypted with Windows' data protection (DPAPI, tied to your Windows account) and only the last four characters are ever shown. They are never written to settings, logs, history or the repository.

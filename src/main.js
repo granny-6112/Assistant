@@ -140,6 +140,8 @@ async function showBar({ focus = false, display = null } = {}) {
       display: { id: target.id, bounds: target.bounds, scaleFactor: target.scaleFactor },
       glassSourceId: liveGlassAllowed() ? await screenSourceId(target) : null,
     });
+    // Offer "Summarise this video" when a YouTube video is open.
+    videoMod().visibleTitle().then((title) => send('youtube-visible', title));
   }
   if (focus) {
     win.focus();
@@ -278,9 +280,15 @@ function formatTime(sec) {
 
 // ---------- IPC: asking ----------
 
-ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
+ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording, video, files }) => {
   const s = settings.load();
-  const model = findModel(s.modelId);
+  let model = findModel(s.modelId);
+  // Only Gemini can watch a YouTube video, so a video question goes to
+  // Gemini 3.6 Flash (free) whichever model is selected.
+  if (video && model.provider !== 'google') {
+    if (!settings.getApiKey('google')) return { ok: false, error: 'Video summaries use your free Gemini key, because only Gemini can watch YouTube videos. Add one in Settings → API keys.' };
+    model = findModel('gemini-3.6-flash');
+  }
   const isLocal = model.provider === 'local';
   const apiKey = isLocal ? null : settings.getApiKey(model.provider);
   if (!isLocal && !apiKey) {
@@ -290,6 +298,22 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
   const attachments = [];
 
   try {
+    if (video) {
+      send('ai-status', 'Finding the video on your screen…');
+      const found = await videoMod().find();
+      if (!found) {
+        return { ok: false, error: "Couldn't find a YouTube video on screen. Open it in your browser (Chrome, Edge, Firefox or Brave), or copy its link, and ask again." };
+      }
+      content.push({ type: 'video_url', url: found.url });
+      attachments.push(found.title ? `video · ${found.title}` : 'YouTube video');
+      if (!text) text = videoMod().PROMPT;
+    }
+    if (files?.length) {
+      send('ai-status', 'Reading your files…');
+      const loaded = await require('./files').load(files, { needText: isLocal });
+      content.push(...loaded.blocks);
+      attachments.push(...loaded.names);
+    }
     if (attachRecording && lastRecording && lastRecording.frames.length) {
       send('ai-status', 'Reading your recording…');
       // The offline model is far slower per image, so it gets fewer frames.
@@ -334,6 +358,7 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
     return { ok: true, refused: result.refused, truncated: result.truncated, servedBy: result.servedBy, busyFallback: result.busyFallback, usage: used };
   } catch (err) {
     if (isAbort(err)) return { ok: false, cancelled: true };
+    noteKeyFailure(model.provider, err);
     return { ok: false, error: describeError(err, model) };
   } finally {
     send('ai-status', null);
@@ -342,13 +367,40 @@ ipcMain.handle('ask', async (_e, { text, includeScreen, attachRecording }) => {
 
 ipcMain.handle('cancel', () => conversation.cancel());
 
+let videoModule = null;
+const videoMod = () => (videoModule ||= require('./video'));
+
+// Speech to text: Gemini when a key is set and the Offline model isn't
+// selected; Whisper on this PC otherwise, or when Gemini can't be reached.
 ipcMain.handle('transcribe', async (_e, wav, opts) => {
   const apiKey = settings.getApiKey('google');
-  if (!apiKey) return { ok: false, error: 'Voice input uses your free Google Gemini key to turn speech into text. Add one in Settings → API keys.' };
+  const offline = Boolean(opts?.offline) || !apiKey;
+  const viaWhisper = async () => ({ ok: true, text: await speech().transcribe(wav), offline: true });
+  if (offline) {
+    if (!speech().isDownloaded()) return { ok: false, needsSpeechModel: true, error: 'Offline speech recognition needs a one-time download first.' };
+    try { return await viaWhisper(); } catch (err) { return { ok: false, error: `Offline speech recognition failed: ${err.message}` }; }
+  }
   try {
     return { ok: true, text: await transcribe(apiKey, Buffer.from(wav).toString('base64'), { partial: Boolean(opts?.partial) }) };
   } catch (err) {
+    const unreachable = /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|network/i.test(String(err?.message || err) + String(err?.cause?.code || ''));
+    if (unreachable && speech().isDownloaded()) {
+      try { return await viaWhisper(); } catch { /* report the Gemini error below */ }
+    }
     return { ok: false, error: describeError(err, findModel('gemini-3.5-flash-lite')) };
+  }
+});
+
+let speechMod = null;
+const speech = () => (speechMod ||= require('./speech'));
+
+ipcMain.handle('speech-status', () => ({ downloaded: speech().isDownloaded(), approxMB: speech().MODEL.approxMB }));
+ipcMain.handle('speech-download', async () => {
+  try {
+    await speech().ensureModel((st) => send('speech-progress', st));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `Couldn't download offline speech recognition: ${err.message}` };
   }
 });
 
@@ -511,11 +563,33 @@ ipcMain.handle('local-prepare', async () => {
 
 // ---------- IPC: settings & UI state ----------
 
+// What Settings shows about a saved key: never the key, only its last four
+// characters, where it comes from, and whether it was rejected.
+function keyInfo(provider) {
+  const key = settings.getApiKey(provider);
+  return {
+    has: Boolean(key),
+    fromEnv: Boolean(settings.envKey(provider)) && key === settings.envKey(provider),
+    last4: key && key.length > 12 ? key.slice(-4) : '',
+    invalid: Boolean(key && settings.load().keyInvalid?.[provider]),
+  };
+}
+
+// An answer failed because the key itself was refused (expired, revoked or
+// wrong): remember it, so Settings asks for a new one.
+const KEY_REFUSED = /API_KEY_INVALID|API key not valid|API key expired|invalid x-api-key|authentication_error|"status":\s*401|\b401\b/i;
+function noteKeyFailure(provider, err) {
+  if (!provider || provider === 'local') return;
+  const text = `${err?.status || ''} ${err?.message || err}`;
+  if (err?.status !== 401 && !KEY_REFUSED.test(text)) return;
+  settings.save({ keyInvalid: { ...settings.load().keyInvalid, [provider]: true } });
+}
+
 ipcMain.handle('get-settings', () => ({
   ...settings.load(),
   keys: {
-    google: { has: Boolean(settings.getApiKey('google')), fromEnv: Boolean(settings.envKey('google')) },
-    anthropic: { has: Boolean(settings.getApiKey('anthropic')), fromEnv: Boolean(settings.envKey('anthropic')) },
+    google: keyInfo('google'),
+    anthropic: keyInfo('anthropic'),
   },
   version: app.getVersion(),
   update: updater.getStatus(),
@@ -537,9 +611,11 @@ ipcMain.handle('set-api-key', async (_e, { provider, key }) => {
     // stray quotes or spaces from copy-paste, then check it with a real call.
     const cleaned = String(key || '').trim().replace(/^["']|["']$/g, '').trim();
     settings.setApiKey(provider, cleaned);
+    settings.save({ keyInvalid: { ...settings.load().keyInvalid, [provider]: false } });
     const hasKey = Boolean(settings.getApiKey(provider));
     const value = cleaned || settings.getApiKey(provider);
     const check = hasKey ? await verifyKey(provider, value) : null;
+    if (check?.valid === false) settings.save({ keyInvalid: { ...settings.load().keyInvalid, [provider]: true } });
     return { ok: true, hasKey, check };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -563,10 +639,22 @@ ipcMain.on('content-height', (_e, h) => {
 });
 
 ipcMain.on('hide', () => hideBar());
+ipcMain.on('focus-bar', () => { if (win && shown) { win.focus(); send('focus-input'); } });
 ipcMain.on('open-external', (_e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); });
 ipcMain.on('show-in-folder', (_e, p) => { if (p && fs.existsSync(p)) shell.showItemInFolder(p); });
 ipcMain.on('open-recordings-folder', () => shell.openPath(recordingsDir()));
-ipcMain.on('quit', () => app.quit());
+// Force stop: end everything Assistant is doing and close it straight away.
+ipcMain.on('quit', () => {
+  try {
+    if (agentRun) agentRun.controller.abort();
+    if (agentRun || inputLoaded()) require('./input').releaseAll();
+  } catch { /* closing anyway */ }
+  try { local.stop(); } catch {}
+  try { speechMod?.stop(); } catch {}
+  try { globalShortcut.unregisterAll(); keyboardHook?.stop(); } catch {}
+  app.exit(0);
+});
+const inputLoaded = () => Object.keys(require.cache).some((k) => k.endsWith(`${path.sep}input.js`));
 
 // ---------- IPC: recording ----------
 
@@ -645,7 +733,8 @@ function registerShortcuts() {
   reg('Alt+Shift+C', toggleBar);
   reg('Alt+Shift+R', () => send('toggle-recording'));
   reg('Alt+Shift+S', () => { showBar({ focus: true }); send('quick-ask'); });
-  if (settings.load().copilotKey) registerCopilotKey();
+  reg('Alt+Shift+Y', () => { showBar({ focus: true }); send('summarise-video'); });
+  startKeyboardHook();
   if (failed.length) {
     dialog.showMessageBox({
       type: 'warning',
@@ -667,20 +756,93 @@ function onCopilotKey() {
   toggleBar();
 }
 
-function registerCopilotKey() {
-  try { globalShortcut.register('Super+Shift+F23', onCopilotKey); } catch { /* reserved by the shell */ }
-  try {
-    const { uIOhook, UiohookKey } = require('uiohook-napi');
-    uIOhook.on('keydown', (e) => { if (e.keycode === UiohookKey.F23) onCopilotKey(); });
-    uIOhook.start();
-    keyboardHook = uIOhook;
-  } catch (err) {
-    console.warn('Keyboard hook unavailable; the Copilot key relies on the global shortcut only.', err);
+// Push-to-talk: hold the chosen key to talk, let go to send. A short hold
+// first, so tapping the key (or using it in a shortcut like Ctrl+C) never
+// starts the mic.
+const PTT_HOLD_MS = 250;
+let ptt = { down: false, active: false, timer: null };
+let captureKey = null; // resolve function while Settings waits for "press a key"
+
+function onKeyDown(e) {
+  if (captureKey) {
+    const done = captureKey;
+    captureKey = null;
+    done(e.keycode);
+    return;
+  }
+  const { pttKey } = settings.load();
+  if (pttKey && e.keycode === pttKey) {
+    if (ptt.down) return; // key repeat while held
+    ptt.down = true;
+    ptt.timer = setTimeout(() => {
+      if (!ptt.down) return;
+      ptt.active = true;
+      showBar();
+      send('ptt-start');
+    }, PTT_HOLD_MS);
+    return;
+  }
+  // Another key while holding: it's a shortcut, not push-to-talk.
+  if (ptt.down && !ptt.active) clearTimeout(ptt.timer);
+}
+
+function onKeyUp(e) {
+  const { pttKey } = settings.load();
+  if (!pttKey || e.keycode !== pttKey) return;
+  ptt.down = false;
+  clearTimeout(ptt.timer);
+  if (ptt.active) {
+    ptt.active = false;
+    send('ptt-end');
   }
 }
 
+function keyName(code) {
+  const { UiohookKey } = require('uiohook-napi');
+  const raw = Object.keys(UiohookKey).find((k) => UiohookKey[k] === code) || `Key ${code}`;
+  return raw.replace(/^(Ctrl|Alt|Shift|Meta)(Right|Left)$/, '$2 $1').replace(/^Meta/, 'Windows').replace(/([a-z])([A-Z0-9])/g, '$1 $2');
+}
+
+function startKeyboardHook() {
+  const s = settings.load();
+  if (s.copilotKey) {
+    try { globalShortcut.register('Super+Shift+F23', onCopilotKey); } catch { /* reserved by the shell */ }
+  }
+  if (keyboardHook) return;
+  try {
+    const { uIOhook, UiohookKey } = require('uiohook-napi');
+    uIOhook.on('keydown', (e) => {
+      if (e.keycode === UiohookKey.F23 && settings.load().copilotKey) onCopilotKey();
+      else onKeyDown(e);
+    });
+    uIOhook.on('keyup', onKeyUp);
+    uIOhook.start();
+    keyboardHook = uIOhook;
+  } catch (err) {
+    console.warn('Keyboard hook unavailable; push-to-talk is off and the Copilot key relies on the global shortcut only.', err);
+  }
+}
+
+// Settings → "Change key": the next key pressed anywhere becomes the
+// push-to-talk key. Esc cancels.
+ipcMain.handle('capture-ptt-key', () => {
+  if (!keyboardHook) return { ok: false, error: "Push-to-talk needs the keyboard hook, which didn't start on this PC." };
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => { captureKey = null; resolve({ ok: false, error: 'No key pressed.' }); }, 10000);
+    captureKey = (code) => {
+      clearTimeout(timeout);
+      const { UiohookKey } = require('uiohook-napi');
+      if (code === UiohookKey.Escape) return resolve({ ok: false, cancelled: true });
+      const name = keyName(code);
+      settings.save({ pttKey: code, pttKeyName: name });
+      resolve({ ok: true, key: code, name });
+    };
+  });
+});
+
 app.on('will-quit', () => {
   local.stop();
+  if (speechMod) speechMod.stop();
   globalShortcut.unregisterAll();
   if (keyboardHook) keyboardHook.stop();
 });

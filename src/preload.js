@@ -1,5 +1,5 @@
 // The renderer's only bridge to the main process.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const on = (channel) => (fn) => {
   const listener = (_e, payload) => fn(payload);
@@ -8,6 +8,10 @@ const on = (channel) => (fn) => {
 };
 
 contextBridge.exposeInMainWorld('bar', {
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  onYoutubeVisible: on('youtube-visible'),
+  onSummariseVideo: on('summarise-video'),
+  focusBar: () => ipcRenderer.send('focus-bar'),
   ask: (req) => ipcRenderer.invoke('ask', req),
   cancel: () => ipcRenderer.invoke('cancel'),
   newChat: () => ipcRenderer.invoke('new-chat'),
@@ -18,6 +22,12 @@ contextBridge.exposeInMainWorld('bar', {
   getModels: () => ipcRenderer.invoke('get-models'),
   transcribe: (wav, opts) => ipcRenderer.invoke('transcribe', wav, opts),
   micStatus: () => ipcRenderer.invoke('mic-status'),
+  capturePttKey: () => ipcRenderer.invoke('capture-ptt-key'),
+  speechStatus: () => ipcRenderer.invoke('speech-status'),
+  speechDownload: () => ipcRenderer.invoke('speech-download'),
+  onSpeechProgress: on('speech-progress'),
+  onPttStart: on('ptt-start'),
+  onPttEnd: on('ptt-end'),
   openMicSettings: () => ipcRenderer.send('open-mic-settings'),
   localPrepare: () => ipcRenderer.invoke('local-prepare'),
   agentRun: (task) => ipcRenderer.invoke('agent-run', { task }),

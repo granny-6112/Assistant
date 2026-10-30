@@ -53,7 +53,7 @@ function onStatus(fn) { listener = fn; }
 // ---------- downloads ----------
 
 // Resumable: an interrupted multi-GB download continues where it stopped.
-async function download(url, dest, label) {
+async function download(url, dest, label, onProgress = setStatus) {
   const tmp = `${dest}.part`;
   const have = fs.existsSync(tmp) ? fs.statSync(tmp).size : 0;
   const headers = { 'User-Agent': 'Assistant-desktop' };
@@ -70,7 +70,7 @@ async function download(url, dest, label) {
       const now = Date.now();
       if (total && now - lastReport > 250) {
         lastReport = now;
-        setStatus({ state: 'downloading', progress: done / total, message: `Downloading ${label}: ${(done / 1e9).toFixed(2)} of ${(total / 1e9).toFixed(2)} GB` });
+        onProgress({ state: 'downloading', progress: done / total, message: `Downloading ${label}: ${(done / 1e9).toFixed(2)} of ${(total / 1e9).toFixed(2)} GB` });
       }
       cb(null, chunk);
     },
@@ -274,4 +274,4 @@ function describe(tierSetting) {
   return { tier: key, auto: !TIERS[tierSetting], ramGB: Math.round(ramGB()), ...TIERS[key], downloaded: Boolean(files.model && files.mmproj), status };
 }
 
-module.exports = { TIERS, autoTier, describe, start, stop, streamLocal, onStatus };
+module.exports = { TIERS, autoTier, describe, start, stop, streamLocal, onStatus, download };

@@ -16,6 +16,8 @@
     busy: false,
     pinned: false,
     listening: false,
+    files: [],        // dropped files waiting to be asked about: { path, name }
+    videoTitle: null, // a YouTube video is open on screen
     settingsOpen: false,
     agentMode: false,
     agentRunning: false,
@@ -112,8 +114,9 @@
   }
 
   let wasTyping = false;
+  const defaultPlaceholder = input.placeholder;
   function reportUi() {
-    wasTyping = input.value.trim().length > 0;
+    wasTyping = input.value.trim().length > 0 || state.files.length > 0;
     window.bar.uiState({
       busy: state.busy,
       typing: wasTyping,
@@ -128,7 +131,7 @@
     if (state.agentRunning && !state.agentConfirmId) { panel.hidden = true; return; }
     $('agent-confirm').hidden = !state.agentConfirmId;
     $('setup').hidden = !state.setupOpen || state.settingsOpen;
-    const hasContent = state.setupOpen || Boolean(state.agentConfirmId) || messagesEl.children.length > 0 || !banner.hidden || state.settingsOpen || Boolean(state.lastRecording);
+    const hasContent = state.setupOpen || Boolean(state.agentConfirmId) || messagesEl.children.length > 0 || !banner.hidden || state.settingsOpen || Boolean(state.lastRecording) || state.files.length > 0 || Boolean(state.videoTitle);
     if (hasContent && panel.hidden) {
       panel.hidden = false;
       panel.classList.add('entering');
@@ -139,6 +142,8 @@
     settingsForm.hidden = !state.settingsOpen;
     messagesEl.hidden = state.settingsOpen;
     $('recording-chip').hidden = state.settingsOpen || !state.lastRecording;
+    $('file-chips').hidden = state.settingsOpen || !state.files.length;
+    $('video-chip').hidden = state.settingsOpen || !state.videoTitle || state.busy;
   }
 
   // actions: [{ label, primary, onClick }] shown as buttons under the text.
@@ -235,6 +240,7 @@
     const font = FONTS[Number(e.target.value)];
     applyFont(font.id);
     state.settings = await window.bar.saveSettings({ fontFamily: font.id });
+    flashSaved();
   });
 
   // Scales the glass tint: 0 → about 1.8× as opaque as the default, 100 → nearly clear.
@@ -249,6 +255,7 @@
   async function setAccent(hex) {
     applyAccent(hex);
     state.settings = await window.bar.saveSettings({ accentColor: hex });
+    flashSaved();
   }
   for (const sw of document.querySelectorAll('.swatch[data-color]')) sw.addEventListener('click', () => setAccent(sw.dataset.color));
   $('accent-custom').addEventListener('input', (e) => applyAccent(e.target.value));
@@ -434,10 +441,16 @@
 
   window.bar.onFallback(() => { if (active) active.fellBack = true; });
 
-  async function ask(question, { forceScreen = false } = {}) {
+  async function ask(question, { forceScreen = false, video = false } = {}) {
     if (state.busy) return;
-    const text = question.trim();
-    if (!text) return;
+    let text = question.trim();
+    const dropped = state.files;
+    const files = dropped.map((f) => f.path);
+    if (!text && files.length) text = files.length > 1 ? 'Summarise these files.' : 'Summarise this file.';
+    if (!text && !video) return;
+    const shown = text || 'Summarise this video';
+    state.files = [];
+    renderFileChips();
     if (state.settingsOpen) closeSettings();
     input.value = '';
     showBanner('');
@@ -446,7 +459,7 @@
     root.classList.add('busy');
     reportUi();
 
-    const userEl = addUserMessage(text);
+    const userEl = addUserMessage(shown);
     const msg = addAssistantMessage();
     active = { msg, userEl, renderQueued: false, fellBack: false };
     const includeScreen = forceScreen || state.includeScreen;
@@ -454,9 +467,12 @@
     state.attachRecording = false;
     $('attach-recording').classList.remove('on');
 
-    const result = await window.bar.ask({ text, includeScreen, attachRecording });
+    // A video question doesn't need a screenshot: the video itself is sent.
+    const result = await window.bar.ask({ text, includeScreen: includeScreen && !video, attachRecording, video, files });
     const fellBack = active.fellBack;
     active = null;
+    // Keep the files if the question failed, so it can be asked again.
+    if (!result.ok && !result.cancelled && dropped.length && !state.files.length) { state.files = dropped; renderFileChips(); }
 
     stopThinking(msg);
     if (!result.ok || result.refused) msg.reveal.skip();
@@ -560,9 +576,71 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  const VIDEO_ASK = /\b(summ?ari[sz]e|sum up|tl;?dr|recap)\b.*\b(video|vid|yt|youtube)\b|\bwhat(?:'?s| is) (?:this|the) video\b/i;
   function submit() {
-    if (state.agentMode) runAgent(input.value); else ask(input.value);
+    if (state.agentMode) runAgent(input.value);
+    else ask(input.value, { video: VIDEO_ASK.test(input.value) });
   }
+
+  // ---------- YouTube ----------
+
+  window.bar.onYoutubeVisible((title) => {
+    state.videoTitle = title || null;
+    $('video-label').textContent = title ? `Summarise "${title.length > 48 ? `${title.slice(0, 46)}…` : title}"` : 'Summarise this video';
+    syncPanel();
+  });
+  $('summarise-video').addEventListener('click', () => ask(input.value, { video: true }));
+  window.bar.onSummariseVideo(() => ask(input.value, { video: true }));
+
+  // ---------- dropped files ----------
+
+  function renderFileChips() {
+    const box = $('file-chips');
+    box.replaceChildren(...state.files.map((f, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip file-chip';
+      chip.title = f.path;
+      const name = document.createElement('span');
+      name.textContent = f.name;
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'chip-x';
+      x.title = `Remove ${f.name}`;
+      x.textContent = '×';
+      x.addEventListener('click', () => { state.files.splice(i, 1); renderFileChips(); });
+      chip.append(name, x);
+      return chip;
+    }));
+    if (state.files.length) input.placeholder = 'Ask about the file' + (state.files.length > 1 ? 's' : '') + '… (Enter summarises)';
+    else if (!window.Voice?.active()) input.placeholder = defaultPlaceholder;
+    syncPanel();
+    reportUi();
+  }
+
+  let dragDepth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  document.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (dragDepth++ === 0) root.classList.add('dropping');
+  });
+  document.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  document.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    if (--dragDepth <= 0) { dragDepth = 0; root.classList.remove('dropping'); }
+  });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    root.classList.remove('dropping');
+    const added = [...(e.dataTransfer?.files || [])]
+      .map((f) => ({ path: window.bar.pathForFile(f), name: f.name }))
+      .filter((f) => f.path && !state.files.some((g) => g.path === f.path));
+    if (!added.length) return;
+    state.files.push(...added);
+    renderFileChips();
+    window.bar.focusBar();
+  });
 
   $('send').addEventListener('click', () => {
     if (state.agentRunning) window.bar.agentStop();
@@ -695,11 +773,9 @@
     applyTransparency(s.glassTransparency);
     applyFont(s.fontFamily);
     renderKeysSummary(s.keys);
+    renderPtt();
     renderUpdate(s.update, s.version);
-    for (const provider of ['google', 'anthropic']) {
-      const k = s.keys[provider];
-      setKeyStatus(provider, k.has ? (k.fromEnv ? 'Using the key from your environment variables.' : 'Key saved (encrypted with your Windows account).') : 'No key yet.', k.has ? 'ok' : '');
-    }
+    for (const provider of ['google', 'anthropic']) renderKey(provider);
     renderPicker();
   }
 
@@ -715,6 +791,26 @@
     select.value = want;
   }
   navigator.mediaDevices?.addEventListener('devicechange', () => { if (state.settingsOpen) fillMics(); });
+
+  function renderPtt() {
+    const on = Boolean(state.settings.pttKey);
+    $('ptt-key').textContent = on ? state.settings.pttKeyName : 'Off';
+    $('ptt-off').hidden = !on;
+  }
+  $('ptt-change').addEventListener('click', async () => {
+    const btn = $('ptt-change');
+    btn.textContent = 'Press a key…';
+    const r = await window.bar.capturePttKey();
+    btn.textContent = 'Change';
+    if (r.ok) state.settings = { ...state.settings, pttKey: r.key, pttKeyName: r.name };
+    else if (!r.cancelled) showBanner(r.error, 'info');
+    renderPtt();
+  });
+  $('ptt-off').addEventListener('click', async () => {
+    state.settings = await window.bar.saveSettings({ pttKey: 0 });
+    flashSaved();
+    renderPtt();
+  });
 
   let testingMic = false;
   $('mic-test').addEventListener('click', async () => {
@@ -736,6 +832,44 @@
     }
   });
 
+  // A saved key shows as one "Key in use" row; the box to paste a key only
+  // appears when there's no key, the key stopped working, or you choose
+  // "Use another key".
+  const replacingKey = {};
+  function renderKey(provider) {
+    const k = state.settings.keys?.[provider] || {};
+    const showSaved = k.has && !k.invalid && !replacingKey[provider];
+    $(`key-saved-${provider}`).hidden = !showSaved;
+    $(`key-row-${provider}`).hidden = showSaved;
+    $(`key-saved-text-${provider}`).textContent = k.fromEnv
+      ? 'Key in use (from your environment variables)'
+      : `Key in use${k.last4 ? ` ··· ${k.last4}` : ''} · encrypted with your Windows account`;
+    settingsForm.querySelector(`.key-remove[data-provider="${provider}"]`).hidden = k.fromEnv;
+    if (k.invalid) setKeyStatus(provider, `This key stopped working (it may have expired or been revoked). Paste a new one${k.last4 ? ` to replace ··· ${k.last4}` : ''}.`, 'bad');
+    else if (!k.has) setKeyStatus(provider, 'No key yet.', '');
+    else if (replacingKey[provider]) setKeyStatus(provider, 'Paste the new key and press Save. The current key stays until then.', '');
+    else setKeyStatus(provider, '', '');
+  }
+  for (const btn of settingsForm.querySelectorAll('.key-replace')) {
+    btn.addEventListener('click', () => {
+      replacingKey[btn.dataset.provider] = true;
+      renderKey(btn.dataset.provider);
+      $(`key-${btn.dataset.provider}`).focus();
+    });
+  }
+  for (const btn of settingsForm.querySelectorAll('.key-remove')) {
+    btn.addEventListener('click', async () => {
+      const provider = btn.dataset.provider;
+      await window.bar.setApiKey(provider, '');
+      replacingKey[provider] = false;
+      state.settings = await window.bar.getSettings();
+      renderKey(provider);
+      setKeyStatus(provider, 'Key removed.', '');
+      renderKeysSummary(state.settings.keys);
+      renderPicker();
+    });
+  }
+
   function renderKeysSummary(k) {
     const mark = (x) => (x?.has ? '✓' : '–');
     $('keys-summary').textContent = `Google ${mark(k.google)} · Anthropic ${mark(k.anthropic)}`;
@@ -754,12 +888,23 @@
     window.bar.openExternal(a.href);
   });
 
+  // Every setting saves the moment it changes; a small tick confirms it.
+  let savedTimer = 0;
+  function flashSaved() {
+    const tick = $('saved-tick');
+    tick.textContent = '✓ Saved';
+    tick.classList.add('on');
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => tick.classList.remove('on'), 1400);
+  }
+
   settingsForm.addEventListener('change', async (e) => {
     const el = e.target.closest('[data-setting]');
     if (!el) return;
     let value = el.type === 'checkbox' ? el.checked : el.value;
     if ('number' in el.dataset) value = Number(value);
     state.settings = await window.bar.saveSettings({ [el.dataset.setting]: value });
+    flashSaved();
     applyTint();
     if (el.dataset.setting === 'liveGlass' && value === 'off') window.Glass.stop();
     if (el.dataset.setting === 'agentEnabled') {
@@ -773,6 +918,7 @@
       const provider = btn.dataset.provider;
       const field = $(`key-${provider}`);
       const key = field.value.trim();
+      if (!key) { replacingKey[provider] = false; renderKey(provider); return; } // removing is the Remove button
       btn.disabled = true;
       setKeyStatus(provider, key ? 'Checking key…' : '', '');
       const r = await window.bar.setApiKey(provider, key);
@@ -785,6 +931,10 @@
       else setKeyStatus(provider, 'Key saved and working (encrypted with your Windows account).', 'ok');
       if (r.ok && r.hasKey && /key/i.test(banner.textContent)) showBanner('');
       state.settings = await window.bar.getSettings();
+      if (r.ok && r.hasKey && r.check?.valid !== false) replacingKey[provider] = false;
+      renderKey(provider);
+      if (r.ok && r.hasKey && r.check?.valid !== false) setKeyStatus(provider, r.check?.valid === null ? r.check.message : 'Key saved and working.', r.check?.valid === null ? '' : 'ok');
+      else if (r.check?.valid === false) setKeyStatus(provider, r.check.message, 'bad');
       renderKeysSummary(state.settings.keys);
       renderPicker();
     });
@@ -1044,7 +1194,6 @@
   });
   panel.addEventListener('pointerleave', () => { settingsHover.panel = false; maybeAutoClose(); });
   settingsForm.addEventListener('focusout', () => setTimeout(maybeAutoClose, 0));
-  $('close-settings').addEventListener('click', closeSettings);
   $('recordings-folder').addEventListener('click', () => window.bar.openRecordingsFolder());
   $('quit').addEventListener('click', () => window.bar.quit());
 
@@ -1107,12 +1256,13 @@
   // ---------- voice input ----------
 
   const micBtn = $('mic');
-  const defaultPlaceholder = input.placeholder;
-  async function startVoice() {
+  async function startVoice({ hold = false } = {}) {
     if (state.busy || window.Voice.active()) return;
-    if (!state.settings.keys?.google?.has) {
-      showBanner('Voice input uses your free Google Gemini key to turn speech into text. Add one in Settings → API keys.');
-      return;
+    // Speech becomes text with Gemini, or with Whisper on this PC when the
+    // Offline model is selected or there's no Gemini key.
+    const offlineSpeech = state.models[currentModelIndex()]?.provider === 'local' || !state.settings.keys?.google?.has;
+    if (offlineSpeech && !(await window.bar.speechStatus()).downloaded) {
+      if (!(await offerSpeechDownload())) return;
     }
     // Keep the bar open while listening and transcribing, so the question
     // can't land in a hidden bar.
@@ -1120,7 +1270,7 @@
     if (!state.settings.micAsked) {
       if (state.micPrompting) return;
       state.micPrompting = true;
-      const allowed = await new Promise((resolve) => showBanner('Assistant would like to use your microphone so you can ask out loud. Audio is only sent to Gemini to turn it into text and is never saved.', 'info', [
+      const allowed = await new Promise((resolve) => showBanner('Assistant would like to use your microphone so you can ask out loud. Audio is only used to turn your words into text (by Gemini, or on this PC when offline) and is never saved.', 'info', [
         { label: 'Allow microphone', primary: true, onClick: () => resolve(true) },
         { label: 'Not now', onClick: () => resolve(false) },
       ]));
@@ -1128,6 +1278,7 @@
       showBanner('');
       if (!allowed) return;
       state.settings = await window.bar.saveSettings({ micAsked: true });
+      if (hold && !pttHeld) return; // the key was let go while we were asking
     }
     if (await window.bar.micStatus() === 'denied') {
       showBanner('Windows is blocking the microphone for Assistant. Turn on "Microphone access" and "Let desktop apps access your microphone", then try again.', 'error', [
@@ -1137,7 +1288,9 @@
     }
     const setListening = (on) => { state.listening = on; reportUi(); };
     setListening(true);
-    showBanner('Listening… click the mic or press Enter when you\'re done, or just pause for 5 seconds.', 'info');
+    showBanner(hold
+      ? `Listening… let go of ${state.settings.pttKeyName || 'the key'} to send.`
+      : 'Listening… click the mic or press Enter when you\'re done, or just pause for 5 seconds.', 'info');
     micBtn.classList.add('listening');
     // Live preview: about every 1.2 s, everything said so far is transcribed
     // again and shown in the box, so you can see you've been heard. One
@@ -1151,11 +1304,11 @@
     const liveTimer = setInterval(async () => {
       if (liveBusy || liveOff || !window.Voice.active()) return;
       const wav = window.Voice.snapshot();
-      if (!wav || wav.byteLength - liveBytes < 16000 * 2 * 0.6) return; // wait for 0.6 s more audio
+      if (!wav || wav.byteLength - liveBytes < 16000 * 2 * (offlineSpeech ? 1.5 : 0.6)) return; // wait for more audio (longer offline, to spare the CPU)
       liveBusy = true;
       liveBytes = wav.byteLength;
       let r = null;
-      try { r = await window.bar.transcribe(wav, { partial: true }); } catch {}
+      try { r = await window.bar.transcribe(wav, { partial: true, offline: offlineSpeech }); } catch {}
       liveBusy = false;
       if (!r?.ok) liveOff = /limit|quota|429/i.test(r?.error || ''); // don't burn the daily quota on previews
       else if (r.text && window.Voice.active()) input.value = r.text;
@@ -1170,6 +1323,7 @@
     try {
       result = await window.Voice.start({
         deviceId: state.settings.micDeviceId,
+        hold,
         onLevel: (v) => micBtn.style.setProperty('--mic-level', v.toFixed(2)),
       });
     } catch (err) {
@@ -1193,18 +1347,47 @@
     showBanner('Turning your speech into text…', 'info');
     let r;
     try {
-      r = await window.bar.transcribe(result.wav);
+      r = await window.bar.transcribe(result.wav, { offline: offlineSpeech });
     } catch (err) {
       r = { ok: false, error: `Couldn't turn your speech into text: ${err.message || err}` };
     }
     micBtn.classList.remove('transcribing');
     setListening(false);
+    if (!r.ok && r.needsSpeechModel) { if (await offerSpeechDownload()) showBanner('Ready. Ask again.', 'info'); return; }
     if (!r.ok) { showBanner(r.error); return; }
     if (!r.text) { showBanner("Couldn't make out any words. Try again a little closer to the mic.", 'info'); return; }
     showBanner('');
     input.value = r.text;
     submit();
   }
+  // One-time download of offline speech recognition, only if you agree.
+  async function offerSpeechDownload() {
+    const { approxMB } = await window.bar.speechStatus();
+    const ok = await new Promise((resolve) => showBanner(`To understand speech without the internet${state.settings.keys?.google?.has ? '' : ' (or without a Gemini key)'}, Assistant needs offline speech recognition: a one-time ${approxMB} MB download that then runs on this PC.`, 'info', [
+      { label: `Download (${approxMB} MB)`, primary: true, onClick: () => resolve(true) },
+      { label: 'Not now', onClick: () => resolve(false) },
+    ]));
+    if (!ok) { showBanner(''); return false; }
+    showBanner('Downloading offline speech recognition…', 'info');
+    const off = window.bar.onSpeechProgress((st) => showBanner(st.message, 'info'));
+    const r = await window.bar.speechDownload();
+    off?.();
+    if (!r.ok) { showBanner(r.error); return false; }
+    showBanner('Offline speech recognition is ready.', 'info');
+    return true;
+  }
+
+  // Push-to-talk: the key is held anywhere in Windows; letting go sends.
+  let pttHeld = false;
+  window.bar.onPttStart(() => {
+    pttHeld = true;
+    if (!state.agentRunning) startVoice({ hold: true });
+  });
+  window.bar.onPttEnd(() => {
+    pttHeld = false;
+    if (window.Voice.active()) window.Voice.finish();
+  });
+
   // Clicking the mic again sends what was said; Esc throws it away.
   micBtn.addEventListener('click', () => {
     if (window.Voice.active()) window.Voice.finish(); else startVoice();
