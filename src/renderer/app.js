@@ -812,10 +812,14 @@
     updateAction.textContent = st.state === 'ready' ? 'Restart now' : 'Check now';
     updateAction.classList.toggle('primary', st.state === 'ready');
     const notes = available && st.notes ? DOMPurify.sanitize(st.notes) : '';
-    $('update-notes').innerHTML = notes ? `<p class="update-notes-title">What's new in ${st.version}</p>${notes}` : '';
+    $('update-notes').innerHTML = notes ? `<p class="update-notes-title">What's new since ${state.version || 'your version'}</p>${notes}` : '';
     $('update-notes').hidden = !notes;
     $('update-callout').hidden = !available;
     $('update-callout-text').textContent = st.state === 'ready' ? `Update ${st.version} is ready` : `Update ${st.version} available`;
+    // A small dot on the gear suggests the update without interrupting.
+    const gearBtn = $('open-settings');
+    gearBtn.classList.toggle('has-update', available);
+    gearBtn.title = st.state === 'ready' ? `Settings · update ${st.version} ready to install` : available ? `Settings · update ${st.version} downloading` : 'Settings';
   }
 
   $('update-callout').addEventListener('click', () => {

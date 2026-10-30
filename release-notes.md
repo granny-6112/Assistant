@@ -1,22 +1,3 @@
-- Settings open when you hover the gear and hide when the mouse leaves them
-- Your words appear in the text bar as you speak (about 1–2 s behind)
-- Asks before using the microphone, with a button to Windows settings if it is blocked
-- Choose and test your microphone in Settings → General
-- Mic picks up quiet laptop microphones; click the mic again or press Enter to send
-- While recording the mic turns into a red record button that moves with your voice
-- Offline model button says "Load now" once the model is downloaded
-- Offline model no longer stays stuck on "Loading" after it is ready
-- Settings button is now a gear icon
-- Mic button: ask out loud; stops after 5 s of silence
-- Model slider opens from the model box
-- Cursor highlight follows the mouse with no lag
-- Videos no longer hitch when the bar hides
-- Clearer error messages that say what to do
-- Setup guide for a free Gemini key and the microphone
-- Code blocks with Copy, tables and maths in answers
-- Shows today's free Gemini usage and warns near the limit
-- Updates section with what's new and Restart now
-- Font choice in Personalization
-- Claude can read your Assistant chats (install Assistant-for-Claude.mcpb)
-- Updates no longer need a GitHub token
-- Faster: starts about 25% quicker and uses about 20 MB less memory in the background
+- "What's new" only lists changes since the version you have
+- Checks for updates every 90 minutes and after waking from sleep
+- A dot on the gear shows when an update is ready

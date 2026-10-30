@@ -1,11 +1,13 @@
-// Updates from the public GitHub repo's releases. Checks are a single small
-// HTTPS request a few times a day, and a new version installs itself when the
-// app quits.
-const { app } = require('electron');
+// Updates from the public GitHub repo's releases. A check is one small HTTPS
+// request, made every 90 minutes and after the PC wakes from sleep; a new
+// version downloads quietly, the bar suggests it, and it installs itself when
+// the app quits (or straight away with Restart now).
+const { app, powerMonitor } = require('electron');
 
 const REPO = { owner: 'granny-6112', repo: 'Assistant' };
 const FIRST_CHECK_MS = 30 * 1000;
-const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+const CHECK_EVERY_MS = 90 * 60 * 1000;
+const AFTER_WAKE_MS = 15 * 1000; // give Wi-Fi a moment to reconnect
 
 let autoUpdater = null;
 let timer = null;
@@ -27,6 +29,9 @@ function updater() {
   ({ autoUpdater } = require('electron-updater'));
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Notes for every release newer than this one, not just the latest, so
+  // "What's new" covers exactly what this install doesn't have yet.
+  autoUpdater.fullChangelog = true;
   autoUpdater.logger = null;
   autoUpdater.on('checking-for-update', () => setStatus({ state: 'checking' }));
   autoUpdater.on('update-not-available', () => setStatus({ state: 'none', version: app.getVersion() }));
@@ -37,12 +42,23 @@ function updater() {
   return autoUpdater;
 }
 
-// The GitHub release body, as HTML (the renderer sanitises it).
+// What's new since the installed version, as HTML (the renderer sanitises
+// it): the bullet points of every newer release, newest first, each said once.
 function notesOf(info) {
   const n = info?.releaseNotes;
   if (!n) return '';
-  if (Array.isArray(n)) return n.map((x) => x.note || '').join('');
-  return String(n);
+  const notes = Array.isArray(n) ? n.map((x) => x.note || '') : [String(n)];
+  const seen = new Set();
+  const items = [];
+  for (const html of notes) {
+    const lis = html.match(/<li[\s>][\s\S]*?<\/li>/gi);
+    if (!lis) { if (html.trim()) items.push(`<li>${html}</li>`); continue; }
+    for (const li of lis) {
+      const key = li.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (key && !seen.has(key)) { seen.add(key); items.push(li); }
+    }
+  }
+  return items.length ? `<ul>${items.join('')}</ul>` : '';
 }
 
 function describe(err) {
@@ -52,6 +68,8 @@ function describe(err) {
 }
 
 async function check() {
+  // Already downloading or waiting for a restart: nothing to look for.
+  if (status.state === 'downloading') return;
   if (!app.isPackaged) return setStatus({ state: 'none', version: app.getVersion() });
   const u = updater();
   u.setFeedURL({ provider: 'github', ...REPO });
@@ -68,6 +86,16 @@ function start() {
     check();
     timer = setTimeout(loop, CHECK_EVERY_MS);
   }, FIRST_CHECK_MS);
+  powerMonitor.removeListener('resume', onResume);
+  powerMonitor.on('resume', onResume);
+}
+
+function onResume() {
+  clearTimeout(timer);
+  timer = setTimeout(function loop() {
+    check();
+    timer = setTimeout(loop, CHECK_EVERY_MS);
+  }, AFTER_WAKE_MS);
 }
 
 function installNow() {

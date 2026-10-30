@@ -733,3 +733,10 @@ kbd {
 .settings::-webkit-scrollbar { width: 6px; }
 .settings::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 3px; }
 .settings::-webkit-scrollbar-button { display: none; }
+
+/* Update nudge on the gear */
+#open-settings { position: relative; }
+#open-settings.has-update::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--field);
+}
