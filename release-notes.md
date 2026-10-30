@@ -1,3 +1,4 @@
+- Settings open when you hover the gear and hide when the mouse leaves them
 - Your words appear in the text bar as you speak (about 1–2 s behind)
 - Asks before using the microphone, with a button to Windows settings if it is blocked
 - Choose and test your microphone in Settings → General

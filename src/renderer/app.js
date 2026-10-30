@@ -732,6 +732,7 @@
     } finally {
       btn.textContent = 'Test';
       testingMic = false;
+      maybeAutoClose();
     }
   });
 
@@ -986,7 +987,59 @@
     input.focus();
   }
 
-  $('open-settings').addEventListener('click', () => (state.settingsOpen ? closeSettings() : openSettings()));
+  $('open-settings').addEventListener('click', () => {
+    clearTimeout(hoverOpenTimer);
+    if (state.settingsOpen) closeSettings(); else { openSettings(); settingsHover.armed = true; }
+  });
+
+  // Settings also open by hovering the gear and close by themselves once the
+  // pointer has left both the gear and the settings panel. A short delay
+  // stops a pass over the gear from opening them, and a grace period lets the
+  // pointer cross the gap between the gear and the panel. They stay open
+  // while you type in a field, have a dropdown open or test the mic.
+  const HOVER_OPEN_MS = 150;
+  const HOVER_CLOSE_MS = 350;
+  let hoverOpenTimer = 0;
+  let hoverCloseTimer = 0;
+  const settingsHover = { gear: false, panel: false, armed: false };
+  const busyInSettings = () => {
+    const a = document.activeElement;
+    return testingMic || Boolean(a && settingsForm.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'range');
+  };
+  function maybeAutoClose() {
+    clearTimeout(hoverCloseTimer);
+    if (!state.settingsOpen || !settingsHover.armed || settingsHover.gear || settingsHover.panel) return;
+    hoverCloseTimer = setTimeout(() => {
+      if (settingsHover.gear || settingsHover.panel || !state.settingsOpen) return;
+      if (busyInSettings()) return; // re-checked when the field loses focus
+      settingsHover.armed = false;
+      closeSettings();
+    }, HOVER_CLOSE_MS);
+  }
+  const gear = $('open-settings');
+  gear.addEventListener('pointerenter', () => {
+    settingsHover.gear = true;
+    clearTimeout(hoverCloseTimer);
+    if (state.settingsOpen) return;
+    hoverOpenTimer = setTimeout(() => {
+      if (!settingsHover.gear || state.settingsOpen) return;
+      setPickerOpen(false);
+      openSettings();
+      settingsHover.armed = true;
+    }, HOVER_OPEN_MS);
+  });
+  gear.addEventListener('pointerleave', () => {
+    settingsHover.gear = false;
+    clearTimeout(hoverOpenTimer);
+    maybeAutoClose();
+  });
+  panel.addEventListener('pointerenter', () => {
+    settingsHover.panel = true;
+    if (state.settingsOpen) settingsHover.armed = true; // settings opened another way close too once visited
+    clearTimeout(hoverCloseTimer);
+  });
+  panel.addEventListener('pointerleave', () => { settingsHover.panel = false; maybeAutoClose(); });
+  settingsForm.addEventListener('focusout', () => setTimeout(maybeAutoClose, 0));
   $('close-settings').addEventListener('click', closeSettings);
   $('recordings-folder').addEventListener('click', () => window.bar.openRecordingsFolder());
   $('quit').addEventListener('click', () => window.bar.quit());
