@@ -1,3 +1,1 @@
-- The bar stretches out of a point at the top centre of the screen and pulls back into it
-- Smoother, slightly slower Settings pop-out with no delay
-- Settings close when the mouse leaves, even with a section or dropdown open (they stay open only while you type a key)
+- The bar grows out of the top-centre point in one smooth motion and shrinks back the same way
