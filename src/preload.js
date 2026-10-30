@@ -10,6 +10,7 @@ const on = (channel) => (fn) => {
 contextBridge.exposeInMainWorld('bar', {
   pathForFile: (file) => webUtils.getPathForFile(file),
   onYoutubeVisible: on('youtube-visible'),
+  onPointerOutside: on('pointer-outside'),
   onSummariseVideo: on('summarise-video'),
   focusBar: () => ipcRenderer.send('focus-bar'),
   ask: (req) => ipcRenderer.invoke('ask', req),

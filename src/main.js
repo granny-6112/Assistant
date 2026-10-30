@@ -157,7 +157,7 @@ function hideBar() {
   hiding = setTimeout(() => {
     hiding = null;
     if (!shown) win.hide();
-  }, 220);
+  }, 300); // after the bar has pulled back into its point
 }
 
 function toggleBar() {
@@ -170,6 +170,7 @@ function keepOpen() {
 }
 
 let tickTimer = null;
+let settingsOutside = false;
 let pollingPaused = false;
 
 function scheduleTick(ms) {
@@ -214,8 +215,17 @@ function tick() {
     return powerMonitor.getSystemIdleTime() > 60 ? POLL_IDLE_MS : POLL_FAR_MS;
   }
 
-  if (keepOpen()) { outsideSince = 0; return POLL_NEAR_MS * 2; }
   const b = win.getBounds();
+  if (ui.settingsOpen) {
+    // Settings close themselves once the cursor is off the bar; tell the
+    // renderer (it decides, e.g. not while a key is being typed).
+    const off = p.x < b.x || p.x > b.x + b.width || p.y < b.y || p.y > b.y + contentHeight;
+    if (off && !settingsOutside) send('pointer-outside');
+    settingsOutside = off;
+  } else {
+    settingsOutside = false;
+  }
+  if (keepOpen()) { outsideSince = 0; return POLL_NEAR_MS * 2; }
   const m = 28;
   const inside = p.x >= b.x - m && p.x <= b.x + b.width + m && p.y >= b.y - m && p.y <= b.y + contentHeight + m;
   if (inside) { outsideSince = 0; return POLL_NEAR_MS * 2; }

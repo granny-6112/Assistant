@@ -144,18 +144,49 @@ html, body {
 .bar { border-radius: 28px; height: 56px; }
 .panel { border-radius: 24px; }
 
-#root.concealed .bar {
-  transform: translateY(-90px) scaleX(.86) scaleY(.7);
-  opacity: 0;
-  filter: blur(8px);
+/* The bar stretches out of one point at the top centre of the screen (wide
+   first, then tall, settling without a bounce) and pulls back into it. The
+   panel under it follows from the same point. Transform and opacity only, so
+   it runs on the GPU compositor. */
+.bar { transform-origin: 50% 0; animation: bar-out .62s both; }
+#root.concealed .bar { animation: bar-in .28s both; }
+.panel { animation: panel-out .6s both; }
+#root.concealed .panel { animation: panel-in .24s both; }
+
+@keyframes bar-out {
+  0% { transform: scale(.02, .1); opacity: 0; animation-timing-function: cubic-bezier(.3, .8, .4, 1); }
+  15% { opacity: 1; }
+  45% { transform: scale(1.025, .5); animation-timing-function: cubic-bezier(.3, .7, .3, 1); }
+  72% { transform: scale(.995, 1.035); animation-timing-function: cubic-bezier(.4, 0, .3, 1); }
+  100% { transform: none; opacity: 1; }
 }
-#root.concealed .panel {
-  transform: translateY(-40px) scale(.94);
-  opacity: 0;
-  filter: blur(8px);
+@keyframes bar-in {
+  0% { transform: none; opacity: 1; animation-timing-function: cubic-bezier(.5, 0, .8, .4); }
+  40% { transform: scale(1.015, .55); }
+  80% { opacity: 1; }
+  100% { transform: scale(.02, .1); opacity: 0; }
 }
-.panel { transition-delay: .04s; transform-origin: 50% 0; }
-.panel.entering { transform: translateY(-14px) scale(.97); opacity: 0; }
+@keyframes panel-out {
+  0% { transform: translateY(-64px) scale(.04, .02); opacity: 0; animation-timing-function: cubic-bezier(.3, .8, .4, 1); }
+  25% { opacity: 1; }
+  55% { transform: translateY(0) scale(1.015, .85); animation-timing-function: cubic-bezier(.3, .7, .3, 1); }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes panel-in {
+  0% { transform: none; opacity: 1; animation-timing-function: cubic-bezier(.5, 0, .8, .4); }
+  100% { transform: translateY(-64px) scale(.04, .02); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar, .panel, #root.concealed .bar, #root.concealed .panel { animation-duration: 1ms; }
+}
+/* Panels and Settings glide out with a long ease-out: no overshoot, no delay. */
+.panel {
+  transform-origin: 50% 0;
+  transition: transform .55s cubic-bezier(.22, 1, .36, 1), opacity .42s cubic-bezier(.22, 1, .36, 1), filter .42s cubic-bezier(.22, 1, .36, 1);
+}
+.panel.entering { transform: translateY(-18px) scale(.97); opacity: 0; }
+.settings { transition: opacity .42s cubic-bezier(.22, 1, .36, 1), transform .55s cubic-bezier(.22, 1, .36, 1); }
+.settings.entering { opacity: 0; transform: translateY(-10px); }
 
 /* ---------- bar ---------- */
 

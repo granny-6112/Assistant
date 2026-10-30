@@ -905,6 +905,7 @@
     if ('number' in el.dataset) value = Number(value);
     state.settings = await window.bar.saveSettings({ [el.dataset.setting]: value });
     flashSaved();
+    if (el.tagName === 'SELECT') el.blur(); // a chosen dropdown shouldn't hold Settings open
     applyTint();
     if (el.dataset.setting === 'liveGlass' && value === 'off') window.Glass.stop();
     if (el.dataset.setting === 'agentEnabled') {
@@ -1132,6 +1133,8 @@
     state.settingsOpen = true;
     loadSettings().then(fillMics);
     syncPanel();
+    settingsForm.classList.add('entering');
+    requestAnimationFrame(() => requestAnimationFrame(() => settingsForm.classList.remove('entering')));
     reportUi();
   }
   function closeSettings() {
@@ -1158,7 +1161,9 @@
   const settingsHover = { gear: false, panel: false, armed: false };
   const busyInSettings = () => {
     const a = document.activeElement;
-    return testingMic || Boolean(a && settingsForm.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'range');
+    // Only typing (a key being pasted) or a running mic test keeps Settings
+    // open after the mouse leaves; open sections and dropdowns don't.
+    return testingMic || Boolean(a && settingsForm.contains(a) && /^(INPUT|TEXTAREA)$/.test(a.tagName) && /^(text|password|search|email|url)$/.test(a.type || 'text'));
   };
   function maybeAutoClose() {
     clearTimeout(hoverCloseTimer);
@@ -1194,6 +1199,15 @@
   });
   panel.addEventListener('pointerleave', () => { settingsHover.panel = false; maybeAutoClose(); });
   settingsForm.addEventListener('focusout', () => setTimeout(maybeAutoClose, 0));
+  // The main process watches the real cursor too, because a fast move out of
+  // the window doesn't always produce a pointerleave.
+  window.bar.onPointerOutside?.(() => {
+    if (!state.settingsOpen) return;
+    settingsHover.gear = false;
+    settingsHover.panel = false;
+    settingsHover.armed = true;
+    maybeAutoClose();
+  });
   $('recordings-folder').addEventListener('click', () => window.bar.openRecordingsFolder());
   $('quit').addEventListener('click', () => window.bar.quit());
 
@@ -1412,7 +1426,7 @@
   window.bar.onConceal(() => {
     root.classList.add('concealed');
     window.Glass.freeze();
-    concealTimer = setTimeout(() => window.Glass.stop(), 260);
+    concealTimer = setTimeout(() => window.Glass.stop(), 320);
   });
 
   window.bar.onFocusInput(() => input.focus());
