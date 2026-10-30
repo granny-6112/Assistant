@@ -1,6 +1,6 @@
 {
   "name": "assistant",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "A screen assistant that hides at the top of your screen: Gemini, Claude or an offline Gemma model",
   "main": "src/main.js",
   "scripts": {
@@ -45,6 +45,11 @@
       "!node_modules/@fugood/llama.node/**/*.ts",
       "!node_modules/@fugood/node-whisper-linux*/**",
       "!node_modules/@fugood/node-whisper-wasm/**",
+      "!node_modules/@fugood/node-whisper-win32-x64-cuda/**",
+      "!node_modules/@fugood/node-whisper-win32-x64-vulkan/**",
+      "!node_modules/@fugood/node-whisper-win32-arm64*/**",
+      "!node_modules/@fugood/node-llama-win32-x64-cuda/**",
+      "!node_modules/@fugood/node-llama-win32-arm64*/**",
       "!node_modules/@fugood/whisper.node/src/**",
       "!node_modules/@fugood/whisper.node/whisper.cpp/**",
       "!node_modules/@fugood/whisper.node/**/*.ts",

@@ -1,7 +1,1 @@
-- Push-to-talk: hold Right Ctrl anywhere to talk, let go to send (change the key in Settings → General)
-- The mic works offline: free on-PC speech recognition, a one-time 190 MB download
-- Summarise the YouTube video on screen, with timestamps (button, "summarise this video", or Alt+Shift+Y)
-- Drag files onto the bar and ask about them: PDF, Word, text, code, images, audio, video
-- Saved API keys show as "Key in use" with Use another key and Remove
-- Settings save as you change them; Done and Quit are replaced by Force stop
-- Any key stored unencrypted is now encrypted with your Windows account
+- Smaller download: left out a graphics-card speech library Assistant never uses
